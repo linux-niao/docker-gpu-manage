@@ -207,3 +207,152 @@ func (instanceApi *InstanceApi) GetInstancePublic(c *gin.Context) {
 		"info": "不需要鉴权的实例管理接口信息",
 	}, "获取成功", c)
 }
+
+// GetAvailableNodes 根据产品规格获取可用的算力节点
+// @Tags Instance
+// @Summary 根据产品规格获取可用的算力节点
+// @Security ApiKeyAuth
+// @Accept application/json
+// @Produce application/json
+// @Param specId query int true "产品规格ID"
+// @Success 200 {object} response.Response{data=object,msg=string} "查询成功"
+// @Router /instance/getAvailableNodes [get]
+func (instanceApi *InstanceApi) GetAvailableNodes(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	specId := c.Query("specId")
+	if specId == "" {
+		response.FailWithMessage("请选择产品规格", c)
+		return
+	}
+
+	nodes, err := instanceService.GetAvailableNodes(ctx, specId)
+	if err != nil {
+		global.GVA_LOG.Error("查询可用节点失败!", zap.Error(err))
+		response.FailWithMessage("查询可用节点失败:"+err.Error(), c)
+		return
+	}
+	response.OkWithData(nodes, c)
+}
+
+// StartContainer 启动容器
+// @Tags Instance
+// @Summary 启动容器
+// @Security ApiKeyAuth
+// @Accept application/json
+// @Produce application/json
+// @Param ID query string true "实例ID"
+// @Success 200 {object} response.Response{msg=string} "启动成功"
+// @Router /instance/startContainer [post]
+func (instanceApi *InstanceApi) StartContainer(c *gin.Context) {
+	ctx := c.Request.Context()
+	ID := c.Query("ID")
+	if ID == "" {
+		response.FailWithMessage("实例ID不能为空", c)
+		return
+	}
+	err := instanceService.StartContainer(ctx, ID)
+	if err != nil {
+		global.GVA_LOG.Error("启动容器失败!", zap.Error(err))
+		response.FailWithMessage("启动容器失败:"+err.Error(), c)
+		return
+	}
+	response.OkWithMessage("启动成功", c)
+}
+
+// StopContainer 停止容器
+// @Tags Instance
+// @Summary 停止容器
+// @Security ApiKeyAuth
+// @Accept application/json
+// @Produce application/json
+// @Param ID query string true "实例ID"
+// @Success 200 {object} response.Response{msg=string} "停止成功"
+// @Router /instance/stopContainer [post]
+func (instanceApi *InstanceApi) StopContainer(c *gin.Context) {
+	ctx := c.Request.Context()
+	ID := c.Query("ID")
+	if ID == "" {
+		response.FailWithMessage("实例ID不能为空", c)
+		return
+	}
+	err := instanceService.StopContainer(ctx, ID)
+	if err != nil {
+		global.GVA_LOG.Error("停止容器失败!", zap.Error(err))
+		response.FailWithMessage("停止容器失败:"+err.Error(), c)
+		return
+	}
+	response.OkWithMessage("停止成功", c)
+}
+
+// RestartContainer 重启容器
+// @Tags Instance
+// @Summary 重启容器
+// @Security ApiKeyAuth
+// @Accept application/json
+// @Produce application/json
+// @Param ID query string true "实例ID"
+// @Success 200 {object} response.Response{msg=string} "重启成功"
+// @Router /instance/restartContainer [post]
+func (instanceApi *InstanceApi) RestartContainer(c *gin.Context) {
+	ctx := c.Request.Context()
+	ID := c.Query("ID")
+	if ID == "" {
+		response.FailWithMessage("实例ID不能为空", c)
+		return
+	}
+	err := instanceService.RestartContainer(ctx, ID)
+	if err != nil {
+		global.GVA_LOG.Error("重启容器失败!", zap.Error(err))
+		response.FailWithMessage("重启容器失败:"+err.Error(), c)
+		return
+	}
+	response.OkWithMessage("重启成功", c)
+}
+
+// GetContainerLogs 获取容器日志
+// @Tags Instance
+// @Summary 获取容器日志
+// @Security ApiKeyAuth
+// @Accept application/json
+// @Produce application/json
+// @Param ID query string true "实例ID"
+// @Param tail query string false "日志行数"
+// @Success 200 {object} response.Response{data=string,msg=string} "获取成功"
+// @Router /instance/getContainerLogs [get]
+func (instanceApi *InstanceApi) GetContainerLogs(c *gin.Context) {
+	ctx := c.Request.Context()
+	ID := c.Query("ID")
+	if ID == "" {
+		response.FailWithMessage("实例ID不能为空", c)
+		return
+	}
+	tail := c.DefaultQuery("tail", "100")
+	logs, err := instanceService.GetContainerLogs(ctx, ID, tail)
+	if err != nil {
+		global.GVA_LOG.Error("获取容器日志失败!", zap.Error(err))
+		response.FailWithMessage("获取容器日志失败:"+err.Error(), c)
+		return
+	}
+	response.OkWithData(logs, c)
+}
+
+// ContainerTerminal 容器终端WebSocket
+// @Tags Instance
+// @Summary 容器终端WebSocket
+// @Security ApiKeyAuth
+// @Param ID query string true "实例ID"
+// @Param shell query string false "Shell类型 (bash/sh)" default="bash"
+// @Router /instance/terminal [get]
+func (instanceApi *InstanceApi) ContainerTerminal(c *gin.Context) {
+	ID := c.Query("ID")
+	if ID == "" {
+		response.FailWithMessage("实例ID不能为空", c)
+		return
+	}
+	shell := c.DefaultQuery("shell", "bash")
+	if shell != "bash" && shell != "sh" {
+		shell = "bash"
+	}
+	instanceService.HandleTerminal(c, ID, shell)
+}

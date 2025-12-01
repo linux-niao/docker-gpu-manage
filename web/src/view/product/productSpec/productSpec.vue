@@ -83,7 +83,7 @@
 
             <el-table-column align="left" label="内存(GB)" prop="memoryGb" width="120" />
 
-            <el-table-column align="left" label="系统盘容量(GB)" prop="systemDiskGb" width="120" />
+            <!-- <el-table-column align="left" label="系统盘容量(GB)" prop="systemDiskGb" width="120" /> -->
 
             <el-table-column align="left" label="数据盘容量(GB)" prop="dataDiskGb" width="120" />
 
@@ -141,9 +141,9 @@
             <el-form-item label="内存(GB):" prop="memoryGb">
     <el-input v-model.number="formData.memoryGb" :clearable="true" placeholder="请输入内存(GB)" />
 </el-form-item>
-            <el-form-item label="系统盘容量(GB):" prop="systemDiskGb">
+            <!-- <el-form-item label="系统盘容量(GB):" prop="systemDiskGb">
     <el-input v-model.number="formData.systemDiskGb" :clearable="true" placeholder="请输入系统盘容量(GB)" />
-</el-form-item>
+</el-form-item> -->
             <el-form-item label="数据盘容量(GB):" prop="dataDiskGb">
     <el-input v-model.number="formData.dataDiskGb" :clearable="true" placeholder="请输入数据盘容量(GB)" />
 </el-form-item>
@@ -176,9 +176,9 @@
                     <el-descriptions-item label="内存(GB)">
     {{ detailForm.memoryGb }}
 </el-descriptions-item>
-                    <el-descriptions-item label="系统盘容量(GB)">
+                    <!-- <el-descriptions-item label="系统盘容量(GB)">
     {{ detailForm.systemDiskGb }}
-</el-descriptions-item>
+</el-descriptions-item> -->
                     <el-descriptions-item label="数据盘容量(GB)">
     {{ detailForm.dataDiskGb }}
 </el-descriptions-item>
