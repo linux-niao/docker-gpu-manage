@@ -29,6 +29,7 @@ rm_file/
 /server/__debug_bin*
 /server/*.local.yaml
 server/uploads/
+/server/server.exe
 
 *.iml
 web/.pnpm-debug.log
