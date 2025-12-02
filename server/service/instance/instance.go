@@ -89,6 +89,7 @@ func (instanceService *InstanceService) CreateInstance(ctx context.Context, inst
 	runningStatus := "running"
 	err = global.GVA_DB.Model(inst).Updates(map[string]interface{}{
 		"container_id":     containerID,
+		"container_name":   containerName,
 		"container_status": runningStatus,
 	}).Error
 	if err != nil {
@@ -356,8 +357,22 @@ func formatSpecLabel(name, gpuModel, gpuCount, cpuCores, memoryGb, systemDiskGb,
 			label += " | " + strconv.FormatInt(mem, 10) + "G内存"
 		}
 	}
-	// 系统盘不显示
-	_ = systemDiskGb
+	// 系统盘
+	if systemDiskGb != nil {
+		disk := int64(0)
+		switch v := systemDiskGb.(type) {
+		case int64:
+			disk = v
+		case int:
+			disk = int64(v)
+		case float64:
+			disk = int64(v)
+		}
+		if disk > 0 {
+			label += " | 系统盘" + strconv.FormatInt(disk, 10) + "G"
+		}
+	}
+	// 数据盘
 	if dataDiskGb != nil {
 		disk := int64(0)
 		switch v := dataDiskGb.(type) {
@@ -465,11 +480,22 @@ func (instanceService *InstanceService) GetAvailableNodes(ctx context.Context, s
 
 	// 4. 筛选满足要求的节点
 	nodes = make([]AvailableNode, 0)
+
+	// 判断是否需要GPU
+	requiredGpu := int64(0)
+	needGpu := false
+	if spec.GpuCount != nil && *spec.GpuCount > 0 {
+		requiredGpu = *spec.GpuCount
+		needGpu = true
+	}
+
 	for _, node := range allNodes {
-		// 检查显卡型号是否匹配
-		if spec.GpuModel != nil && node.GpuName != nil {
-			if *spec.GpuModel != *node.GpuName {
-				continue
+		// 如果需要GPU，检查显卡型号是否匹配
+		if needGpu {
+			if spec.GpuModel != nil && node.GpuName != nil {
+				if *spec.GpuModel != *node.GpuName {
+					continue
+				}
 			}
 		}
 
@@ -477,12 +503,15 @@ func (instanceService *InstanceService) GetAvailableNodes(ctx context.Context, s
 		nodeId := int64(node.ID)
 		used := usedResources[nodeId]
 
-		// 节点总GPU数量
+		// 节点总GPU数量（仅在需要GPU时计算）
 		totalGpu := int64(0)
-		if node.GpuCount != nil {
-			totalGpu = *node.GpuCount
+		availableGpu := int64(0)
+		if needGpu {
+			if node.GpuCount != nil {
+				totalGpu = *node.GpuCount
+			}
+			availableGpu = totalGpu - used.GpuUsed
 		}
-		availableGpu := totalGpu - used.GpuUsed
 
 		// 解析节点CPU (假设格式为数字或"8核"这样的格式)
 		totalCpu := parseResourceValue(node.Cpu)
@@ -501,10 +530,6 @@ func (instanceService *InstanceService) GetAvailableNodes(ctx context.Context, s
 		availableDataDisk := totalDataDisk - used.DataDiskUsed
 
 		// 检查是否满足规格要求
-		requiredGpu := int64(0)
-		if spec.GpuCount != nil {
-			requiredGpu = *spec.GpuCount
-		}
 		requiredCpu := int64(0)
 		if spec.CpuCores != nil {
 			requiredCpu = *spec.CpuCores
@@ -522,8 +547,11 @@ func (instanceService *InstanceService) GetAvailableNodes(ctx context.Context, s
 			requiredDataDisk = *spec.DataDiskGb
 		}
 
-		// 资源不足则跳过
-		if availableGpu < requiredGpu || availableCpu < requiredCpu || availableMem < requiredMem || availableSystemDisk < requiredSystemDisk || availableDataDisk < requiredDataDisk {
+		// 资源不足则跳过（如果需要GPU才检查GPU资源）
+		if needGpu && availableGpu < requiredGpu {
+			continue
+		}
+		if availableCpu < requiredCpu || availableMem < requiredMem || availableSystemDisk < requiredSystemDisk || availableDataDisk < requiredDataDisk {
 			continue
 		}
 

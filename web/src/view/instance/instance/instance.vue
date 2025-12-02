@@ -125,7 +125,7 @@
 
 
 
-            <el-table-column align="left" label="容器状态" prop="containerStatus" width="100">
+            <el-table-column align="left" label="状态" prop="containerStatus" width="100">
               <template #default="scope">
                 <el-tag :type="getStatusType(scope.row.containerStatus)" size="small">
                   {{ scope.row.containerStatus || '-' }}
@@ -135,7 +135,7 @@
 
             <!-- <el-table-column align="left" label="备注" prop="remark" width="120" /> -->
 
-        <el-table-column align="left" label="基本信息" fixed="right" min-width="150">
+        <el-table-column align="left" label="详情" fixed="right" min-width="150">
             <template #default="scope">
             <el-button type="primary" link class="table-button" @click="getDetails(scope.row)"><el-icon style="margin-right: 5px"><InfoFilled /></el-icon>查看</el-button>
             <el-button 
@@ -260,7 +260,7 @@
                   <div class="spec-details">
                     <span v-if="spec.cpu_cores">CPU: {{ spec.cpu_cores }}核</span>
                     <span v-if="spec.memory_gb">内存: {{ spec.memory_gb }}GB</span>
-                    <!-- <span v-if="spec.system_disk_gb">系统盘: {{ spec.system_disk_gb }}GB</span> -->
+                    <span v-if="spec.system_disk_gb">系统盘: {{ spec.system_disk_gb }}GB</span>
                     <span v-if="spec.data_disk_gb">数据盘: {{ spec.data_disk_gb }}GB</span>
                   </div>
                   <div class="spec-price" v-if="spec.price_per_hour">
@@ -437,9 +437,6 @@
     <template #default="scope">
         <div style="display: flex; align-items: center; gap: 8px;">
           <span>{{ filterDataSource(dataSource.specId,detailForm.specId) }}</span>
-          <span v-if="getSpecInfo(detailForm.specId)?.system_disk_gb" style="color: #909399; font-size: 12px;">
-            (系统盘: {{ getSpecInfo(detailForm.specId).system_disk_gb }}GB)
-          </span>
         </div>
     </template>
 </el-descriptions-item>
@@ -448,8 +445,11 @@
         <span>{{ filterDataSource(searchDataSource.nodeId,detailForm.nodeId) }}</span>
     </template>
 </el-descriptions-item>
-                    <el-descriptions-item label="容器">
-    {{ detailForm.containerId }}
+                    <el-descriptions-item label="容器ID">
+    {{ detailForm.containerId || '-' }}
+</el-descriptions-item>
+                    <el-descriptions-item label="容器名称">
+    {{ detailForm.containerName || '-' }}
 </el-descriptions-item>
                     <el-descriptions-item label="实例名称">
     {{ detailForm.name }}
