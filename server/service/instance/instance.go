@@ -2,6 +2,7 @@ package instance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -12,6 +13,7 @@ import (
 	instanceReq "github.com/flipped-aurora/gin-vue-admin/server/model/instance/request"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/product"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // InstanceWithUser 包含用户信息的实例结构体
@@ -683,6 +685,9 @@ func (instanceService *InstanceService) GetContainerLogs(ctx context.Context, ID
 func (instanceService *InstanceService) getInstanceAndNode(ID string) (*instanceModel.Instance, *computenode.ComputeNode, error) {
 	var inst instanceModel.Instance
 	if err := global.GVA_DB.Where("id = ?", ID).First(&inst).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, fmt.Errorf("实例不存在或已被删除")
+		}
 		return nil, nil, fmt.Errorf("获取实例信息失败: %v", err)
 	}
 

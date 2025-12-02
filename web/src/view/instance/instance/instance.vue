@@ -987,6 +987,11 @@ const refreshContainerStats = async () => {
     return
   }
   
+  // 检查容器状态，只有运行中的容器才获取统计信息
+  if (detailForm.value.containerStatus !== 'running') {
+    return
+  }
+  
   statsLoading.value = true
   try {
     const res = await getContainerStats({ ID: detailForm.value.ID })
@@ -1002,9 +1007,13 @@ const refreshContainerStats = async () => {
         blockWrite: res.data.blockWrite || 0,
         pids: res.data.pids || 0
       }
+    } else {
+      // 如果获取失败（可能是实例不存在或已删除），静默处理
+      console.warn('获取容器统计信息失败:', res.msg || '未知错误')
     }
   } catch (error) {
-    console.error('获取容器统计信息失败:', error)
+    // 静默处理错误，避免影响用户体验
+    console.warn('获取容器统计信息失败:', error)
   } finally {
     statsLoading.value = false
   }
