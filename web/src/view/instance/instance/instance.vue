@@ -493,7 +493,7 @@
               size="default" 
               class="shell-select"
               @change="reconnectTerminal" 
-              :disabled="terminalWs && terminalWs.readyState === WebSocket.OPEN"
+              :disabled="terminalConnected"
               placeholder="选择Shell"
             >
               <el-option label="/bin/bash" value="bash">
@@ -515,14 +515,14 @@
         </div>
         <div class="toolbar-right">
           <el-tag 
-            :type="terminalWs && terminalWs.readyState === WebSocket.OPEN ? 'success' : 'info'" 
+            :type="terminalConnected ? 'success' : 'info'" 
             size="small"
             effect="plain"
           >
             <el-icon style="margin-right: 4px;">
-              <component :is="terminalWs && terminalWs.readyState === WebSocket.OPEN ? 'CircleCheck' : 'Loading'" />
+              <component :is="terminalConnected ? 'CircleCheck' : 'Loading'" />
             </el-icon>
-            {{ terminalWs && terminalWs.readyState === WebSocket.OPEN ? '已连接' : '未连接' }}
+            {{ terminalConnected ? '已连接' : '未连接' }}
           </el-tag>
         </div>
       </div>
@@ -1126,10 +1126,14 @@ const terminalDialogVisible = ref(false)
 const terminalContainer = ref(null)
 const currentTerminalInstance = ref(null)
 const terminalShell = ref('bash') // 默认使用bash
+const terminalConnected = ref(false) // 响应式连接状态
 let terminal = null
 let terminalWs = null
 let fitAddon = null
 let resizeHandler = null
+
+// WebSocket 状态常量，用于模板
+const WS_OPEN = WebSocket.OPEN
 
 const openTerminalDialog = async (row) => {
   currentTerminalInstance.value = row
@@ -1175,7 +1179,7 @@ const initTerminal = async () => {
   
   // 处理输入
   terminal.onData((data) => {
-    if (terminalWs && terminalWs.readyState === WebSocket.OPEN) {
+    if (terminalWs && terminalConnected.value) {
       const msg = JSON.stringify({
         type: 'input',
         data: data
@@ -1186,7 +1190,7 @@ const initTerminal = async () => {
   
   // 处理大小变化
   terminal.onResize(({ cols, rows }) => {
-    if (terminalWs && terminalWs.readyState === WebSocket.OPEN) {
+    if (terminalWs && terminalConnected.value) {
       const msg = JSON.stringify({
         type: 'resize',
         cols: cols,
@@ -1201,7 +1205,7 @@ const initTerminal = async () => {
     if (fitAddon) {
       fitAddon.fit()
       // 同步发送大小变化
-      if (terminalWs && terminalWs.readyState === WebSocket.OPEN && terminal) {
+      if (terminalWs && terminalConnected.value && terminal) {
         const msg = JSON.stringify({
           type: 'resize',
           cols: terminal.cols,
@@ -1221,6 +1225,9 @@ const connectTerminal = () => {
     terminalWs = null
   }
   
+  // 重置连接状态
+  terminalConnected.value = false
+  
   if (!currentTerminalInstance.value) return
   
   // 连接WebSocket
@@ -1228,6 +1235,8 @@ const connectTerminal = () => {
   terminalWs = new WebSocket(wsUrl)
   
   terminalWs.onopen = () => {
+    // 更新连接状态
+    terminalConnected.value = true
     if (terminal) {
       terminal.writeln(`\r\n连接成功，使用 ${terminalShell.value === 'bash' ? '/bin/bash' : '/bin/sh'}`)
       // 发送初始大小
@@ -1271,6 +1280,8 @@ const connectTerminal = () => {
   }
   
   terminalWs.onerror = (error) => {
+    // 更新连接状态
+    terminalConnected.value = false
     if (terminal) {
       terminal.writeln('\r\n连接错误: ' + (error.message || '未知错误'))
     }
@@ -1278,6 +1289,8 @@ const connectTerminal = () => {
   }
   
   terminalWs.onclose = (event) => {
+    // 更新连接状态
+    terminalConnected.value = false
     if (terminal) {
       terminal.writeln('\r\n连接已关闭')
     }
@@ -1300,6 +1313,8 @@ const handleTerminalClose = () => {
 }
 
 const closeTerminal = () => {
+  // 重置连接状态
+  terminalConnected.value = false
   // 清理WebSocket连接
   if (terminalWs) {
     try {
