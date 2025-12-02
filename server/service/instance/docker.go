@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/model/product"
 	"go.uber.org/zap"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/volume"
@@ -173,10 +175,30 @@ func (d *DockerService) CreateContainer(ctx context.Context, node *computenode.C
 		}
 	}
 
+	// 系统盘配置: --storage-opt overlay2.size=NG
+	// 如果配置了系统盘大小，尝试添加存储选项
+	if config.SystemDiskGB > 0 {
+		hostConfig.StorageOpt = map[string]string{
+			"overlay2.size": fmt.Sprintf("%dG", config.SystemDiskGB),
+		}
+	}
+
 	// 尝试创建容器（先尝试带系统盘限制）
 	var resp container.CreateResponse
-
 	resp, err = cli.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, config.Name)
+
+	// 如果创建失败且设置了系统盘参数，尝试不带系统盘参数重试
+	if err != nil && config.SystemDiskGB > 0 {
+		global.GVA_LOG.Warn("使用系统盘参数创建容器失败，尝试不带系统盘参数重试",
+			zap.Error(err),
+			zap.Int64("systemDiskGB", config.SystemDiskGB))
+
+		// 清除系统盘参数
+		hostConfig.StorageOpt = nil
+
+		// 重试创建容器
+		resp, err = cli.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, config.Name)
+	}
 
 	if err != nil {
 		return "", fmt.Errorf("创建容器失败: %v", err)
@@ -200,6 +222,24 @@ func (d *DockerService) DeleteContainer(ctx context.Context, node *computenode.C
 	}
 	defer cli.Close()
 
+	// 先获取容器信息，提取所有挂载的命名卷
+	var volumeNames []string
+	inspect, err := cli.ContainerInspect(ctx, containerID)
+	if err == nil {
+		// 从容器挂载信息中提取所有命名卷
+		for _, m := range inspect.Mounts {
+			if m.Type == mount.TypeVolume && m.Name != "" {
+				volumeNames = append(volumeNames, m.Name)
+			}
+		}
+	} else {
+		// 如果无法获取容器信息，尝试使用默认的命名规则
+		global.GVA_LOG.Warn("获取容器信息失败，使用默认卷名", zap.Error(err))
+		if containerName != "" {
+			volumeNames = append(volumeNames, fmt.Sprintf("%s-data", containerName))
+		}
+	}
+
 	// 先停止容器
 	timeout := 10
 	_ = cli.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout})
@@ -211,13 +251,18 @@ func (d *DockerService) DeleteContainer(ctx context.Context, node *computenode.C
 	})
 	if err != nil {
 		global.GVA_LOG.Warn("删除容器失败", zap.Error(err))
+		// 即使容器删除失败，也继续删除数据卷
 	}
 
-	// 删除命名数据卷
-	volumeName := fmt.Sprintf("%s-data", containerName)
-	err = cli.VolumeRemove(ctx, volumeName, true)
-	if err != nil {
-		global.GVA_LOG.Warn("删除数据卷失败", zap.Error(err))
+	// 删除所有挂载的命名数据卷
+	for _, volumeName := range volumeNames {
+		err = cli.VolumeRemove(ctx, volumeName, true)
+		if err != nil {
+			// 记录警告但不中断流程，因为卷可能已经被删除或不存在
+			global.GVA_LOG.Warn("删除数据卷失败", zap.String("volume", volumeName), zap.Error(err))
+		} else {
+			global.GVA_LOG.Info("成功删除数据卷", zap.String("volume", volumeName))
+		}
 	}
 
 	return nil
@@ -407,4 +452,114 @@ func int64Ptr(i int64) *int64 {
 func parseInt64(s string) int64 {
 	i, _ := strconv.ParseInt(s, 10, 64)
 	return i
+}
+
+// TestDockerConnection 测试Docker连接
+func (d *DockerService) TestDockerConnection(ctx context.Context, node *computenode.ComputeNode) (bool, string) {
+	if node.DockerAddress == nil || *node.DockerAddress == "" {
+		return false, "Docker连接地址为空"
+	}
+
+	cli, err := d.CreateDockerClient(node)
+	if err != nil {
+		return false, fmt.Sprintf("创建Docker客户端失败: %v", err)
+	}
+	defer cli.Close()
+
+	// 尝试ping Docker服务
+	_, err = cli.Ping(ctx)
+	if err != nil {
+		return false, fmt.Sprintf("Docker连接失败: %v", err)
+	}
+
+	return true, "连接成功"
+}
+
+// ContainerStats 容器统计信息
+type ContainerStats struct {
+	CPUUsagePercent    float64 `json:"cpuUsagePercent"`    // CPU使用率百分比
+	MemoryUsage        int64   `json:"memoryUsage"`        // 内存使用量（字节）
+	MemoryLimit        int64   `json:"memoryLimit"`        // 内存限制（字节）
+	MemoryUsagePercent float64 `json:"memoryUsagePercent"` // 内存使用率百分比
+	NetworkRx          int64   `json:"networkRx"`          // 网络接收字节数
+	NetworkTx          int64   `json:"networkTx"`          // 网络发送字节数
+	BlockRead          int64   `json:"blockRead"`          // 块设备读取字节数
+	BlockWrite         int64   `json:"blockWrite"`         // 块设备写入字节数
+	Pids               uint64  `json:"pids"`               // 进程数
+}
+
+// GetContainerStats 获取容器统计信息
+func (d *DockerService) GetContainerStats(ctx context.Context, node *computenode.ComputeNode, containerID string) (*ContainerStats, error) {
+	cli, err := d.CreateDockerClient(node)
+	if err != nil {
+		return nil, fmt.Errorf("创建Docker客户端失败: %v", err)
+	}
+	defer cli.Close()
+
+	// 获取容器统计信息
+	stats, err := cli.ContainerStats(ctx, containerID, false)
+	if err != nil {
+		return nil, fmt.Errorf("获取容器统计信息失败: %v", err)
+	}
+	defer stats.Body.Close()
+
+	// 解析统计信息
+	var v types.StatsJSON
+	if err := json.NewDecoder(stats.Body).Decode(&v); err != nil {
+		return nil, fmt.Errorf("解析统计信息失败: %v", err)
+	}
+
+	// 计算CPU使用率
+	var cpuPercent float64
+	if v.CPUStats.CPUUsage.TotalUsage > 0 && v.PreCPUStats.CPUUsage.TotalUsage > 0 {
+		cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
+		systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
+		if systemDelta > 0 {
+			cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
+		}
+	}
+
+	// 计算内存使用率
+	var memoryPercent float64
+	memoryUsage := v.MemoryStats.Usage
+	memoryLimit := v.MemoryStats.Limit
+	if memoryLimit > 0 {
+		memoryPercent = float64(memoryUsage) / float64(memoryLimit) * 100.0
+	}
+
+	// 获取网络统计
+	var networkRx, networkTx int64
+	if len(v.Networks) > 0 {
+		for _, network := range v.Networks {
+			networkRx += int64(network.RxBytes)
+			networkTx += int64(network.TxBytes)
+		}
+	}
+
+	// 获取块设备统计
+	var blockRead, blockWrite int64
+	if len(v.BlkioStats.IoServiceBytesRecursive) > 0 {
+		for _, entry := range v.BlkioStats.IoServiceBytesRecursive {
+			if entry.Op == "Read" {
+				blockRead += int64(entry.Value)
+			} else if entry.Op == "Write" {
+				blockWrite += int64(entry.Value)
+			}
+		}
+	}
+
+	// 获取进程数
+	pids := v.PidsStats.Current
+
+	return &ContainerStats{
+		CPUUsagePercent:    cpuPercent,
+		MemoryUsage:        int64(memoryUsage),
+		MemoryLimit:        int64(memoryLimit),
+		MemoryUsagePercent: memoryPercent,
+		NetworkRx:          networkRx,
+		NetworkTx:          networkTx,
+		BlockRead:          blockRead,
+		BlockWrite:         blockWrite,
+		Pids:               pids,
+	}, nil
 }

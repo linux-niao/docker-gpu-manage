@@ -28,6 +28,7 @@ type ComputeNode struct {
   ClientKey  *string `json:"clientKey" form:"clientKey" gorm:"comment:客户端私钥内容;column:client_key;type:text;"`  //客户端私钥
   IsOnShelf  *bool `json:"isOnShelf" form:"isOnShelf" gorm:"default:true;comment:是否上架;column:is_on_shelf;" binding:"required"`  //是否上架
   Remark  *string `json:"remark" form:"remark" gorm:"comment:备注信息;column:remark;size:1000;"`  //备注
+  DockerStatus  *string `json:"dockerStatus" form:"dockerStatus" gorm:"comment:Docker连接状态;column:docker_status;size:50;default:'unknown';"`  //Docker连接状态
 }
 
 

@@ -77,18 +77,18 @@
             <template #default="scope">{{ formatDate(scope.row.CreatedAt) }}</template>
         </el-table-column>
         
-            <el-table-column align="left" label="名字" prop="name" width="120" />
+            <el-table-column align="left" label="名字" prop="name" width="160" />
 
-            <el-table-column align="left" label="地址" prop="address" width="120" />
+            <el-table-column align="left" label="地址" prop="address" width="600" />
 
-            <el-table-column align="left" label="描述" prop="description" width="120" />
+            <el-table-column align="left" label="描述" prop="description" width="200" />
 
-            <el-table-column align="left" label="来源" prop="source" width="120" />
+            <!-- <el-table-column align="left" label="来源" prop="source" width="200" /> -->
 
             <el-table-column align="left" label="是否上架" prop="isOnShelf" width="120">
     <template #default="scope">{{ formatBoolean(scope.row.isOnShelf) }}</template>
 </el-table-column>
-            <el-table-column align="left" label="备注" prop="remark" width="120" />
+            <!-- <el-table-column align="left" label="备注" prop="remark" width="200" /> -->
 
         <el-table-column align="left" label="操作" fixed="right" :min-width="appStore.operateMinWith">
             <template #default="scope">

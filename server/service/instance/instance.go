@@ -379,21 +379,22 @@ func (instanceService *InstanceService) GetInstancePublic(ctx context.Context) {
 
 // AvailableNode 可用节点信息
 type AvailableNode struct {
-	ID                uint    `json:"id"`
-	Name              string  `json:"name"`
-	Region            string  `json:"region"`
-	GpuName           string  `json:"gpuName"`
-	GpuCount          int64   `json:"gpuCount"`     // 节点总GPU数量
-	AvailableGpu      int64   `json:"availableGpu"` // 可用GPU数量
-	Cpu               string  `json:"cpu"`
-	AvailableCpu      int64   `json:"availableCpu"` // 可用CPU核心数
-	Memory            string  `json:"memory"`
-	AvailableMemory   int64   `json:"availableMemory"` // 可用内存(GB)
-	SystemDisk        string  `json:"systemDisk"`
-	DataDisk          string  `json:"dataDisk"`
-	AvailableDataDisk int64   `json:"availableDataDisk"` // 可用数据盘(GB)
-	PublicIp          string  `json:"publicIp"`
-	PricePerHour      float64 `json:"pricePerHour"`
+	ID                  uint    `json:"id"`
+	Name                string  `json:"name"`
+	Region              string  `json:"region"`
+	GpuName             string  `json:"gpuName"`
+	GpuCount            int64   `json:"gpuCount"`     // 节点总GPU数量
+	AvailableGpu        int64   `json:"availableGpu"` // 可用GPU数量
+	Cpu                 string  `json:"cpu"`
+	AvailableCpu        int64   `json:"availableCpu"` // 可用CPU核心数
+	Memory              string  `json:"memory"`
+	AvailableMemory     int64   `json:"availableMemory"` // 可用内存(GB)
+	SystemDisk          string  `json:"systemDisk"`
+	AvailableSystemDisk int64   `json:"availableSystemDisk"` // 可用系统盘(GB)
+	DataDisk            string  `json:"dataDisk"`
+	AvailableDataDisk   int64   `json:"availableDataDisk"` // 可用数据盘(GB)
+	PublicIp            string  `json:"publicIp"`
+	PricePerHour        float64 `json:"pricePerHour"`
 }
 
 // GetAvailableNodes 根据产品规格获取可用的算力节点
@@ -417,11 +418,12 @@ func (instanceService *InstanceService) GetAvailableNodes(ctx context.Context, s
 
 	// 3. 统计每个节点已被实例占用的资源
 	type UsedResource struct {
-		NodeId       int64 `json:"nodeId"`
-		GpuUsed      int64 `json:"gpuUsed"`
-		CpuUsed      int64 `json:"cpuUsed"`
-		MemUsed      int64 `json:"memUsed"`
-		DataDiskUsed int64 `json:"dataDiskUsed"`
+		NodeId         int64 `json:"nodeId"`
+		GpuUsed        int64 `json:"gpuUsed"`
+		CpuUsed        int64 `json:"cpuUsed"`
+		MemUsed        int64 `json:"memUsed"`
+		SystemDiskUsed int64 `json:"systemDiskUsed"`
+		DataDiskUsed   int64 `json:"dataDiskUsed"`
 	}
 	usedResources := make(map[int64]UsedResource)
 
@@ -449,6 +451,9 @@ func (instanceService *InstanceService) GetAvailableNodes(ctx context.Context, s
 		}
 		if instSpec.MemoryGb != nil {
 			used.MemUsed += *instSpec.MemoryGb
+		}
+		if instSpec.SystemDiskGb != nil {
+			used.SystemDiskUsed += *instSpec.SystemDiskGb
 		}
 		if instSpec.DataDiskGb != nil {
 			used.DataDiskUsed += *instSpec.DataDiskGb
@@ -485,6 +490,10 @@ func (instanceService *InstanceService) GetAvailableNodes(ctx context.Context, s
 		totalMem := parseResourceValue(node.Memory)
 		availableMem := totalMem - used.MemUsed
 
+		// 解析节点系统盘
+		totalSystemDisk := parseResourceValue(node.SystemDisk)
+		availableSystemDisk := totalSystemDisk - used.SystemDiskUsed
+
 		// 解析节点数据盘
 		totalDataDisk := parseResourceValue(node.DataDisk)
 		availableDataDisk := totalDataDisk - used.DataDiskUsed
@@ -502,23 +511,28 @@ func (instanceService *InstanceService) GetAvailableNodes(ctx context.Context, s
 		if spec.MemoryGb != nil {
 			requiredMem = *spec.MemoryGb
 		}
+		requiredSystemDisk := int64(0)
+		if spec.SystemDiskGb != nil {
+			requiredSystemDisk = *spec.SystemDiskGb
+		}
 		requiredDataDisk := int64(0)
 		if spec.DataDiskGb != nil {
 			requiredDataDisk = *spec.DataDiskGb
 		}
 
 		// 资源不足则跳过
-		if availableGpu < requiredGpu || availableCpu < requiredCpu || availableMem < requiredMem || availableDataDisk < requiredDataDisk {
+		if availableGpu < requiredGpu || availableCpu < requiredCpu || availableMem < requiredMem || availableSystemDisk < requiredSystemDisk || availableDataDisk < requiredDataDisk {
 			continue
 		}
 
 		// 构建可用节点信息
 		availableNode := AvailableNode{
-			ID:                node.ID,
-			AvailableGpu:      availableGpu,
-			AvailableCpu:      availableCpu,
-			AvailableMemory:   availableMem,
-			AvailableDataDisk: availableDataDisk,
+			ID:                  node.ID,
+			AvailableGpu:        availableGpu,
+			AvailableCpu:        availableCpu,
+			AvailableMemory:     availableMem,
+			AvailableSystemDisk: availableSystemDisk,
+			AvailableDataDisk:   availableDataDisk,
 		}
 		if node.Name != nil {
 			availableNode.Name = *node.Name
@@ -637,6 +651,19 @@ func (instanceService *InstanceService) RestartContainer(ctx context.Context, ID
 	// 更新状态
 	status := "running"
 	return global.GVA_DB.Model(&inst).Update("container_status", status).Error
+}
+
+// GetContainerStats 获取容器统计信息
+func (instanceService *InstanceService) GetContainerStats(ctx context.Context, ID string) (*ContainerStats, error) {
+	inst, node, err := instanceService.getInstanceAndNode(ID)
+	if err != nil {
+		return nil, err
+	}
+	if inst.ContainerId == nil || *inst.ContainerId == "" {
+		return nil, fmt.Errorf("容器ID为空")
+	}
+
+	return dockerService.GetContainerStats(ctx, node, *inst.ContainerId)
 }
 
 // GetContainerLogs 获取容器日志

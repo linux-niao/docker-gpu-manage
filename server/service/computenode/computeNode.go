@@ -3,15 +3,42 @@ package computenode
 
 import (
 	"context"
+	"time"
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/computenode"
     computenodeReq "github.com/flipped-aurora/gin-vue-admin/server/model/computenode/request"
+	instanceService "github.com/flipped-aurora/gin-vue-admin/server/service/instance"
+	"go.uber.org/zap"
 )
 
 type ComputeNodeService struct {}
 // CreateComputeNode 创建算力节点记录
 // Author [yourname](https://github.com/yourname)
 func (computeNodeService *ComputeNodeService) CreateComputeNode(ctx context.Context, computeNode *computenode.ComputeNode) (err error) {
+	// 测试Docker连接
+	dockerService := instanceService.DockerService{}
+	testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	
+	connected, message := dockerService.TestDockerConnection(testCtx, computeNode)
+	nodeName := "unknown"
+	if computeNode.Name != nil {
+		nodeName = *computeNode.Name
+	}
+	dockerAddress := "unknown"
+	if computeNode.DockerAddress != nil {
+		dockerAddress = *computeNode.DockerAddress
+	}
+	if connected {
+		status := "connected"
+		computeNode.DockerStatus = &status
+		global.GVA_LOG.Info("Docker连接测试成功", zap.String("node", nodeName), zap.String("address", dockerAddress))
+	} else {
+		status := "failed"
+		computeNode.DockerStatus = &status
+		global.GVA_LOG.Warn("Docker连接测试失败", zap.String("node", nodeName), zap.String("address", dockerAddress), zap.String("error", message))
+	}
+	
 	err = global.GVA_DB.Create(computeNode).Error
 	return err
 }
@@ -33,6 +60,24 @@ func (computeNodeService *ComputeNodeService)DeleteComputeNodeByIds(ctx context.
 // UpdateComputeNode 更新算力节点记录
 // Author [yourname](https://github.com/yourname)
 func (computeNodeService *ComputeNodeService)UpdateComputeNode(ctx context.Context, computeNode computenode.ComputeNode) (err error) {
+	// 如果Docker相关配置有变化，测试Docker连接
+	if computeNode.DockerAddress != nil && *computeNode.DockerAddress != "" {
+		dockerService := instanceService.DockerService{}
+		testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		
+		connected, message := dockerService.TestDockerConnection(testCtx, &computeNode)
+		if connected {
+			status := "connected"
+			computeNode.DockerStatus = &status
+			global.GVA_LOG.Info("Docker连接测试成功", zap.Uint("id", computeNode.ID), zap.String("address", *computeNode.DockerAddress))
+		} else {
+			status := "failed"
+			computeNode.DockerStatus = &status
+			global.GVA_LOG.Warn("Docker连接测试失败", zap.Uint("id", computeNode.ID), zap.String("address", *computeNode.DockerAddress), zap.String("error", message))
+		}
+	}
+	
 	err = global.GVA_DB.Model(&computenode.ComputeNode{}).Where("id = ?",computeNode.ID).Updates(&computeNode).Error
 	return err
 }

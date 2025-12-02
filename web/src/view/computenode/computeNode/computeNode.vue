@@ -87,37 +87,46 @@
         
             <el-table-column align="left" label="名字" prop="name" width="120" />
 
-            <el-table-column align="left" label="区域" prop="region" width="120" />
-
-            <el-table-column align="left" label="CPU" prop="cpu" width="120" />
-
-            <el-table-column align="left" label="内存" prop="memory" width="120" />
-
-            <el-table-column align="left" label="系统盘容量" prop="systemDisk" width="120" />
-
-            <el-table-column align="left" label="数据盘容量" prop="dataDisk" width="120" />
-
-            <el-table-column align="left" label="IP地址公网" prop="publicIp" width="120" />
-
-            <el-table-column align="left" label="IP地址内网" prop="privateIp" width="120" />
-
-            <el-table-column align="left" label="SSH端口" prop="sshPort" width="120" />
-
-            <el-table-column align="left" label="用户名" prop="username" width="120" />
-
+            <el-table-column align="left" label="区域" prop="region" width="80" />
+            
             <el-table-column align="left" label="显卡名称" prop="gpuName" width="120" />
 
-            <el-table-column align="left" label="显卡数量" prop="gpuCount" width="120" />
+            <el-table-column align="left" label="显卡数量" prop="gpuCount" width="100" />
 
-            <el-table-column align="left" label="Docker连接地址" prop="dockerAddress" width="120" />
 
-            <el-table-column align="left" label="使用TLS" prop="useTls" width="120">
+            <el-table-column align="left" label="CPU" prop="cpu" width="80" />
+
+            <el-table-column align="left" label="内存" prop="memory" width="80" />
+
+            <!-- <el-table-column align="left" label="系统盘容量" prop="systemDisk" width="120" /> -->
+
+            <el-table-column align="left" label="数据盘容量" prop="dataDisk" width="100" />
+
+            <el-table-column align="left" label="IP地址公网" prop="publicIp" width="140" />
+
+            <!-- <el-table-column align="left" label="IP地址内网" prop="privateIp" width="140" /> -->
+
+            <!-- <el-table-column align="left" label="SSH端口" prop="sshPort" width="120" />
+
+            <el-table-column align="left" label="用户名" prop="username" width="120" /> -->
+
+
+            <!-- <el-table-column align="left" label="Docker连接地址" prop="dockerAddress" width="120" /> -->
+
+            <!-- <el-table-column align="left" label="使用TLS" prop="useTls" width="120">
     <template #default="scope">{{ formatBoolean(scope.row.useTls) }}</template>
-</el-table-column>
+</el-table-column> -->
             <el-table-column align="left" label="是否上架" prop="isOnShelf" width="120">
     <template #default="scope">{{ formatBoolean(scope.row.isOnShelf) }}</template>
 </el-table-column>
-            <el-table-column align="left" label="备注" prop="remark" width="120" />
+            <el-table-column align="left" label="Docker状态" prop="dockerStatus" width="120">
+    <template #default="scope">
+      <el-tag v-if="scope.row.dockerStatus === 'connected'" type="success">已连接</el-tag>
+      <el-tag v-else-if="scope.row.dockerStatus === 'failed'" type="danger">连接失败</el-tag>
+      <el-tag v-else type="info">未知</el-tag>
+    </template>
+</el-table-column>
+            <!-- <el-table-column align="left" label="备注" prop="remark" width="120" /> -->
 
         <el-table-column align="left" label="操作" fixed="right" :min-width="appStore.operateMinWith">
             <template #default="scope">
@@ -269,6 +278,11 @@
 </el-descriptions-item>
                     <el-descriptions-item label="是否上架">
     {{ detailForm.isOnShelf }}
+</el-descriptions-item>
+                    <el-descriptions-item label="Docker状态">
+    <el-tag v-if="detailForm.dockerStatus === 'connected'" type="success">已连接</el-tag>
+    <el-tag v-else-if="detailForm.dockerStatus === 'failed'" type="danger">连接失败</el-tag>
+    <el-tag v-else type="info">未知</el-tag>
 </el-descriptions-item>
                     <el-descriptions-item label="备注">
     {{ detailForm.remark }}

@@ -58,7 +58,7 @@
   </el-select>
 </el-form-item>
           
-          <el-form-item label="Docker容器" prop="containerId">
+          <el-form-item label="容器" prop="containerId">
   <el-input v-model="searchInfo.containerId" placeholder="搜索条件" />
 </el-form-item>
           
@@ -94,6 +94,14 @@
             <template #default="scope">{{ formatDate(scope.row.CreatedAt) }}</template>
         </el-table-column>
         
+        <el-table-column align="left" label="实例名称" prop="name" width="120" />
+
+        <el-table-column align="left" label="创建用户" prop="userName" width="120">
+          <template #default="scope">
+            <span>{{ scope.row.userName || '-' }}</span>
+          </template>
+        </el-table-column>
+
             <el-table-column align="left" label="镜像" prop="imageId" width="120">
     <template #default="scope">
         <span>{{ filterDataSource(dataSource.imageId,scope.row.imageId) }}</span>
@@ -109,19 +117,13 @@
         <span>{{ filterDataSource(searchDataSource.nodeId,scope.row.nodeId) }}</span>
     </template>
 </el-table-column>
-            <el-table-column align="left" label="Docker容器" prop="containerId" width="150" show-overflow-tooltip>
+            <!-- <el-table-column align="left" label="容器" prop="containerId" width="150" show-overflow-tooltip>
     <template #default="scope">
         <span class="container-id">{{ scope.row.containerId ? scope.row.containerId.substring(0, 12) : '-' }}</span>
     </template>
-</el-table-column>
+</el-table-column> -->
 
-            <el-table-column align="left" label="实例名称" prop="name" width="120" />
 
-            <el-table-column align="left" label="创建用户" prop="userName" width="120">
-              <template #default="scope">
-                <span>{{ scope.row.userName || '-' }}</span>
-              </template>
-            </el-table-column>
 
             <el-table-column align="left" label="容器状态" prop="containerStatus" width="100">
               <template #default="scope">
@@ -144,7 +146,7 @@
             ><el-icon style="margin-right: 3px"><Connection /></el-icon>SSH连接</el-button>
             </template>
         </el-table-column>
-        <el-table-column align="left" label="容器操作" fixed="right" min-width="350">
+        <el-table-column align="left" label="操作" fixed="right" min-width="350">
             <template #default="scope">
             <el-button 
               type="success" 
@@ -435,7 +437,7 @@
         <span>{{ filterDataSource(searchDataSource.nodeId,detailForm.nodeId) }}</span>
     </template>
 </el-descriptions-item>
-                    <el-descriptions-item label="Docker容器">
+                    <el-descriptions-item label="容器">
     {{ detailForm.containerId }}
 </el-descriptions-item>
                     <el-descriptions-item label="实例名称">
@@ -446,6 +448,74 @@
     </el-descriptions-item>
                     <el-descriptions-item label="容器状态">
     {{ detailForm.containerStatus }}
+    </el-descriptions-item>
+                    <el-descriptions-item label="资源使用率" v-if="detailForm.containerId && detailForm.containerStatus === 'running'">
+    <div class="stats-container">
+      <div class="stats-item">
+        <div class="stats-label">
+          <span>CPU使用率</span>
+          <span class="stats-value">{{ containerStats.cpuUsagePercent?.toFixed(2) || '0.00' }}%</span>
+        </div>
+        <el-progress 
+          :percentage="parseFloat(containerStats.cpuUsagePercent?.toFixed(2) || 0)" 
+          :color="getProgressColor(containerStats.cpuUsagePercent)"
+          :stroke-width="12"
+        />
+      </div>
+      <div class="stats-item" style="margin-top: 16px;">
+        <div class="stats-label">
+          <span>内存使用率</span>
+          <span class="stats-value">{{ containerStats.memoryUsagePercent?.toFixed(2) || '0.00' }}%</span>
+        </div>
+        <el-progress 
+          :percentage="parseFloat(containerStats.memoryUsagePercent?.toFixed(2) || 0)" 
+          :color="getProgressColor(containerStats.memoryUsagePercent)"
+          :stroke-width="12"
+        />
+        <div class="stats-detail" v-if="containerStats.memoryUsage && containerStats.memoryLimit">
+          <span>{{ formatBytes(containerStats.memoryUsage) }} / {{ formatBytes(containerStats.memoryLimit) }}</span>
+        </div>
+      </div>
+      
+      <!-- 网络 I/O -->
+      <div class="stats-item" style="margin-top: 16px;">
+        <div class="stats-label">
+          <span>网络 I/O</span>
+        </div>
+        <div class="stats-detail">
+          <span>接收: {{ formatBytes(containerStats.networkRx || 0) }}</span>
+          <span style="margin-left: 16px;">发送: {{ formatBytes(containerStats.networkTx || 0) }}</span>
+        </div>
+      </div>
+      
+      <!-- 块设备 I/O -->
+      <div class="stats-item" style="margin-top: 12px;">
+        <div class="stats-label">
+          <span>块设备 I/O</span>
+        </div>
+        <div class="stats-detail">
+          <span>读取: {{ formatBytes(containerStats.blockRead || 0) }}</span>
+          <span style="margin-left: 16px;">写入: {{ formatBytes(containerStats.blockWrite || 0) }}</span>
+        </div>
+      </div>
+      
+      <!-- 进程数 -->
+      <div class="stats-item" style="margin-top: 12px;">
+        <div class="stats-label">
+          <span>进程数</span>
+          <span class="stats-value">{{ containerStats.pids || 0 }}</span>
+        </div>
+      </div>
+      
+      <el-button 
+        size="small" 
+        @click="refreshContainerStats" 
+        :loading="statsLoading"
+        style="margin-top: 12px;"
+      >
+        <el-icon><RefreshRight /></el-icon>刷新
+      </el-button>
+    </div>
     </el-descriptions-item>
                     <el-descriptions-item label="备注">
     {{ detailForm.remark }}
@@ -565,6 +635,7 @@ import {
   stopContainer,
   restartContainer,
   getContainerLogs,
+  getContainerStats,
   getTerminalWsUrl
 } from '@/api/instance/instance'
 
@@ -855,12 +926,33 @@ const detailForm = ref({})
 // 查看详情控制标记
 const detailShow = ref(false)
 
+// 容器统计信息
+const containerStats = ref({
+  cpuUsagePercent: 0,
+  memoryUsage: 0,
+  memoryLimit: 0,
+  memoryUsagePercent: 0,
+  networkRx: 0,
+  networkTx: 0,
+  blockRead: 0,
+  blockWrite: 0,
+  pids: 0
+})
+const statsLoading = ref(false)
+let statsTimer = null
 
 // 打开详情弹窗
 const openDetailShow = () => {
   detailShow.value = true
+  // 如果容器正在运行，自动获取统计信息并定时刷新
+  if (detailForm.value.containerId && detailForm.value.containerStatus === 'running') {
+    refreshContainerStats()
+    // 每5秒刷新一次
+    statsTimer = setInterval(() => {
+      refreshContainerStats()
+    }, 5000)
+  }
 }
-
 
 // 打开详情
 const getDetails = async (row) => {
@@ -872,11 +964,72 @@ const getDetails = async (row) => {
   }
 }
 
+// 刷新容器统计信息
+const refreshContainerStats = async () => {
+  if (!detailForm.value.ID || !detailForm.value.containerId) {
+    return
+  }
+  
+  statsLoading.value = true
+  try {
+    const res = await getContainerStats({ ID: detailForm.value.ID })
+    if (res.code === 0 && res.data) {
+      containerStats.value = {
+        cpuUsagePercent: res.data.cpuUsagePercent || 0,
+        memoryUsage: res.data.memoryUsage || 0,
+        memoryLimit: res.data.memoryLimit || 0,
+        memoryUsagePercent: res.data.memoryUsagePercent || 0,
+        networkRx: res.data.networkRx || 0,
+        networkTx: res.data.networkTx || 0,
+        blockRead: res.data.blockRead || 0,
+        blockWrite: res.data.blockWrite || 0,
+        pids: res.data.pids || 0
+      }
+    }
+  } catch (error) {
+    console.error('获取容器统计信息失败:', error)
+  } finally {
+    statsLoading.value = false
+  }
+}
+
+// 格式化字节数
+const formatBytes = (bytes) => {
+  if (!bytes || bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
+}
+
+// 获取进度条颜色
+const getProgressColor = (percentage) => {
+  if (!percentage) return '#909399'
+  if (percentage < 50) return '#67c23a'
+  if (percentage < 80) return '#e6a23c'
+  return '#f56c6c'
+}
 
 // 关闭详情弹窗
 const closeDetailShow = () => {
+  // 清除定时器
+  if (statsTimer) {
+    clearInterval(statsTimer)
+    statsTimer = null
+  }
   detailShow.value = false
   detailForm.value = {}
+  containerStats.value = {
+    cpuUsagePercent: 0,
+    memoryUsage: 0,
+    memoryLimit: 0,
+    memoryUsagePercent: 0,
+    networkRx: 0,
+    networkTx: 0,
+    blockRead: 0,
+    blockWrite: 0,
+    pids: 0
+  }
 }
 
 // ============== 新增实例弹窗相关 ==============
@@ -1787,5 +1940,35 @@ onUnmounted(() => {
   height: 500px;
   background: #1e1e1e;
   border-radius: 0 0 4px 4px;
+}
+
+/* 容器统计信息样式 */
+.stats-container {
+  padding: 8px 0;
+}
+
+.stats-item {
+  margin-bottom: 8px;
+}
+
+.stats-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #606266;
+}
+
+.stats-value {
+  font-weight: 600;
+  color: #303133;
+  font-size: 14px;
+}
+
+.stats-detail {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #909399;
 }
 </style>
