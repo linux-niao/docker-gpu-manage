@@ -311,7 +311,7 @@ jumpbox:
 ##### 1. 克隆项目
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/hequan2017/docker-gpu-manage
 cd docker-gpu-manage
 \mv server/config.yaml.bak  server/config.yaml
 ```
