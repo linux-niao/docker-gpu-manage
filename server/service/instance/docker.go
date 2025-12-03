@@ -31,13 +31,16 @@ type DockerService struct{}
 
 // ContainerConfig 容器配置
 type ContainerConfig struct {
-	Image        string // 镜像地址
-	Name         string // 容器名称
-	CPUCores     int64  // CPU核心数
-	MemoryGB     int64  // 内存大小(GB)
-	SystemDiskGB int64  // 系统盘大小(GB)
-	DataDiskGB   int64  // 数据盘大小(GB)
-	GPUCount     int64  // GPU数量
+	Image              string // 镜像地址
+	Name               string // 容器名称
+	CPUCores           int64  // CPU核心数
+	MemoryGB           int64  // 内存大小(GB)
+	SystemDiskGB       int64  // 系统盘大小(GB)
+	DataDiskGB         int64  // 数据盘大小(GB)
+	GPUCount           int64  // GPU数量
+	SupportMemorySplit bool   // 是否支持显存分割
+	MemoryCapacity     int64  // 显存容量(GB)
+	PerCardCapacity    int64  // 节点单卡显存容量(GB)
 }
 
 // CreateDockerClient 创建Docker客户端
@@ -160,6 +163,41 @@ func (d *DockerService) CreateContainer(ctx context.Context, node *computenode.C
 			Source: volumeName,
 			Target: "/data",
 		})
+	}
+
+	// 显存分割配置: 如果支持显存分割，添加相关卷挂载和环境变量
+	if config.SupportMemorySplit && config.MemoryCapacity > 0 && config.PerCardCapacity > 0 {
+		// 挂载 HAMi 库目录: -v /root/hequan/HAMi-core-main/build:/libvgpu/build
+		hostConfig.Mounts = append(hostConfig.Mounts, mount.Mount{
+			Type:   mount.TypeBind,
+			Source: "/root/hequan/HAMi-core-main/build",
+			Target: "/libvgpu/build",
+		})
+
+		// 初始化环境变量（如果还没有）
+		if containerConfig.Env == nil {
+			containerConfig.Env = []string{}
+		}
+
+		// 添加环境变量: LD_PRELOAD=/libvgpu/build/libvgpu.so
+		containerConfig.Env = append(containerConfig.Env, "LD_PRELOAD=/libvgpu/build/libvgpu.so")
+
+		// 添加环境变量: CUDA_DEVICE_MEMORY_LIMIT=产品规格中的显存容量 g
+		containerConfig.Env = append(containerConfig.Env, fmt.Sprintf("CUDA_DEVICE_MEMORY_LIMIT=%dg", config.MemoryCapacity))
+
+		// 计算 CUDA_DEVICE_SM_LIMIT: 产品规格中的显存容量 / 主机本来的单卡总容量（整数）
+		smLimit := int64(0)
+		if config.PerCardCapacity > 0 {
+			smLimit = config.MemoryCapacity / config.PerCardCapacity
+		}
+		// 添加环境变量: CUDA_DEVICE_SM_LIMIT
+		containerConfig.Env = append(containerConfig.Env, fmt.Sprintf("CUDA_DEVICE_SM_LIMIT=%d", smLimit))
+
+		global.GVA_LOG.Info("添加显存分割配置",
+			zap.String("容器名称", config.Name),
+			zap.Int64("显存容量", config.MemoryCapacity),
+			zap.Int64("单卡容量", config.PerCardCapacity),
+			zap.Int64("SM限制", smLimit))
 	}
 
 	// GPU配置: --gpus N
@@ -320,7 +358,7 @@ func (d *DockerService) GetContainerStatus(ctx context.Context, node *computenod
 }
 
 // BuildContainerConfig 根据实例信息构建容器配置
-func (d *DockerService) BuildContainerConfig(image *imageregistry.ImageRegistry, spec *product.ProductSpec, instanceName string) *ContainerConfig {
+func (d *DockerService) BuildContainerConfig(image *imageregistry.ImageRegistry, spec *product.ProductSpec, node *computenode.ComputeNode, instanceName string) *ContainerConfig {
 	config := &ContainerConfig{
 		Name: instanceName,
 	}
@@ -353,6 +391,18 @@ func (d *DockerService) BuildContainerConfig(image *imageregistry.ImageRegistry,
 	// GPU数量
 	if spec.GpuCount != nil {
 		config.GPUCount = *spec.GpuCount
+	}
+
+	// 显存分割相关配置
+	if spec.SupportMemorySplit != nil && *spec.SupportMemorySplit {
+		config.SupportMemorySplit = true
+		if spec.MemoryCapacity != nil {
+			config.MemoryCapacity = *spec.MemoryCapacity
+		}
+		// 计算节点单卡显存容量
+		if node.MemoryCapacity != nil && node.GpuCount != nil && *node.GpuCount > 0 {
+			config.PerCardCapacity = *node.MemoryCapacity / *node.GpuCount
+		}
 	}
 
 	return config

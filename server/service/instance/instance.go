@@ -71,7 +71,7 @@ func (instanceService *InstanceService) CreateInstance(ctx context.Context, inst
 	containerName := dockerService.GenerateInstanceName(*instanceName, inst.ID)
 
 	// 6. 构建容器配置
-	containerConfig := dockerService.BuildContainerConfig(&image, &spec, containerName)
+	containerConfig := dockerService.BuildContainerConfig(&image, &spec, &node, containerName)
 
 	// 7. 创建Docker容器
 	containerID, err := dockerService.CreateContainer(ctx, &node, containerConfig)
