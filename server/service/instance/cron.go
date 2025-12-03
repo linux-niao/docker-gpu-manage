@@ -27,7 +27,6 @@ func StartContainerStatusCheckCron() {
 
 // checkAllContainerStatus 检查所有容器的状态
 func checkAllContainerStatus(ctx context.Context) {
-	global.GVA_LOG.Info("开始检查所有容器状态")
 
 	// 获取所有有容器ID的实例（未删除的）
 	var instances []instanceModel.Instance
@@ -39,8 +38,6 @@ func checkAllContainerStatus(ctx context.Context) {
 	total := len(instances)
 	successCount := 0
 	failCount := 0
-
-	global.GVA_LOG.Info("找到需要检查的实例", zap.Int("总数", total))
 
 	// 遍历每个实例，检查容器状态
 	for _, inst := range instances {

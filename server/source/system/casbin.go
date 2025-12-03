@@ -204,6 +204,45 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "888", V1: "/sysVersion/deleteSysVersion", V2: "DELETE"},
 		{Ptype: "p", V0: "888", V1: "/sysVersion/deleteSysVersionByIds", V2: "DELETE"},
 
+		// 实例管理相关权限
+		{Ptype: "p", V0: "888", V1: "/instance/createInstance", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/instance/deleteInstance", V2: "DELETE"},
+		{Ptype: "p", V0: "888", V1: "/instance/deleteInstanceByIds", V2: "DELETE"},
+		{Ptype: "p", V0: "888", V1: "/instance/updateInstance", V2: "PUT"},
+		{Ptype: "p", V0: "888", V1: "/instance/findInstance", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/instance/getInstanceList", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/instance/getAvailableNodes", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/instance/startContainer", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/instance/stopContainer", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/instance/restartContainer", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/instance/getContainerLogs", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/instance/getContainerStats", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/instance/terminal", V2: "GET"},
+
+		// 算力节点相关权限
+		{Ptype: "p", V0: "888", V1: "/computeNode/createComputeNode", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/computeNode/deleteComputeNode", V2: "DELETE"},
+		{Ptype: "p", V0: "888", V1: "/computeNode/deleteComputeNodeByIds", V2: "DELETE"},
+		{Ptype: "p", V0: "888", V1: "/computeNode/updateComputeNode", V2: "PUT"},
+		{Ptype: "p", V0: "888", V1: "/computeNode/findComputeNode", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/computeNode/getComputeNodeList", V2: "GET"},
+
+		// 镜像库相关权限
+		{Ptype: "p", V0: "888", V1: "/imageRegistry/createImageRegistry", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/imageRegistry/deleteImageRegistry", V2: "DELETE"},
+		{Ptype: "p", V0: "888", V1: "/imageRegistry/deleteImageRegistryByIds", V2: "DELETE"},
+		{Ptype: "p", V0: "888", V1: "/imageRegistry/updateImageRegistry", V2: "PUT"},
+		{Ptype: "p", V0: "888", V1: "/imageRegistry/findImageRegistry", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/imageRegistry/getImageRegistryList", V2: "GET"},
+
+		// 产品规格相关权限
+		{Ptype: "p", V0: "888", V1: "/productSpec/createProductSpec", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/productSpec/deleteProductSpec", V2: "DELETE"},
+		{Ptype: "p", V0: "888", V1: "/productSpec/deleteProductSpecByIds", V2: "DELETE"},
+		{Ptype: "p", V0: "888", V1: "/productSpec/updateProductSpec", V2: "PUT"},
+		{Ptype: "p", V0: "888", V1: "/productSpec/findProductSpec", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/productSpec/getProductSpecList", V2: "GET"},
+
 		{Ptype: "p", V0: "8881", V1: "/user/admin_register", V2: "POST"},
 		{Ptype: "p", V0: "8881", V1: "/api/createApi", V2: "POST"},
 		{Ptype: "p", V0: "8881", V1: "/api/getApiList", V2: "POST"},
