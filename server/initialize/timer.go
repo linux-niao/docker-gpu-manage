@@ -2,6 +2,8 @@ package initialize
 
 import (
 	"fmt"
+
+	"github.com/flipped-aurora/gin-vue-admin/server/service/instance"
 	"github.com/flipped-aurora/gin-vue-admin/server/task"
 
 	"github.com/robfig/cron/v3"
@@ -34,4 +36,7 @@ func Timer() {
 		//	fmt.Println("add timer error:", err)
 		//}
 	}()
+
+	// 启动容器状态检查定时任务（使用 gcron，每10分钟检查一次）
+	instance.StartContainerStatusCheckCron()
 }

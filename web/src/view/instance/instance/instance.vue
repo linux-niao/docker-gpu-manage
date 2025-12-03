@@ -332,7 +332,7 @@
                   {{ scope.row.availableMemory }}GB
                 </template>
               </el-table-column>
-              <el-table-column label="显存" width="100">
+              <el-table-column label="单卡可用显存" width="120">
                 <template #default="scope">
                   {{ scope.row.memoryCapacity || 0 }}GB
                 </template>
@@ -366,9 +366,15 @@
             <span class="step-title">实例信息</span>
           </div>
           <div class="step-content">
-            <el-form :model="createForm" label-width="80px">
-              <el-form-item label="实例名称" required>
-                <el-input v-model="createForm.name" placeholder="请输入实例名称" />
+            <el-form :model="createForm" :rules="createFormRules" ref="createFormRef" label-width="80px">
+              <el-form-item label="实例名称" prop="name" required>
+                <el-input 
+                  v-model="createForm.name" 
+                  placeholder="请输入实例名称（不支持中文）" 
+                  @input="handleNameInput"
+                  maxlength="50"
+                />
+                <div class="form-tip">提示：实例名称仅支持字母、数字、横线和下划线，不支持中文</div>
               </el-form-item>
               <el-form-item label="备注">
                 <el-input v-model="createForm.remark" type="textarea" placeholder="请输入备注" :rows="2" />
@@ -1103,6 +1109,29 @@ const createForm = ref({
 const availableNodes = ref([])
 const nodesLoading = ref(false)
 const selectedSpec = ref(null)
+const createFormRef = ref(null)
+
+// 实例名称输入处理：过滤中文
+const handleNameInput = (value) => {
+  // 只保留字母、数字、横线和下划线
+  createForm.value.name = value.replace(/[^a-zA-Z0-9_-]/g, '')
+}
+
+// 实例名称校验规则
+const createFormRules = reactive({
+  name: [
+    {
+      required: true,
+      message: '请输入实例名称',
+      trigger: ['input', 'blur'],
+    },
+    {
+      pattern: /^[a-zA-Z0-9_-]+$/,
+      message: '实例名称仅支持字母、数字、横线和下划线，不支持中文',
+      trigger: ['input', 'blur'],
+    },
+  ],
+})
 
 // 打开新增实例弹窗
 const openCreateDialog = () => {
@@ -1212,6 +1241,18 @@ const submitCreate = async () => {
     return
   }
   
+  // 表单校验
+  if (!createFormRef.value) {
+    return
+  }
+  
+  try {
+    await createFormRef.value.validate()
+  } catch (error) {
+    ElMessage.warning('请检查输入信息，实例名称不支持中文')
+    return
+  }
+  
   btnLoading.value = true
   try {
     const res = await createInstance(createForm.value)
@@ -1224,6 +1265,25 @@ const submitCreate = async () => {
     btnLoading.value = false
   }
 }
+
+// 监听对话框关闭，重置表单
+watch(createDialogVisible, (newVal) => {
+  if (!newVal) {
+    // 关闭时重置表单和校验状态
+    createForm.value = {
+      imageId: undefined,
+      specId: undefined,
+      nodeId: undefined,
+      name: '',
+      remark: ''
+    }
+    availableNodes.value = []
+    selectedSpec.value = null
+    if (createFormRef.value) {
+      createFormRef.value.clearValidate()
+    }
+  }
+})
 
 // 监听规格变化，自动获取节点
 watch(() => createForm.value.specId, (newVal) => {
@@ -2063,5 +2123,11 @@ onUnmounted(() => {
   margin-top: 4px;
   font-size: 12px;
   color: #909399;
+}
+.form-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+  line-height: 1.5;
 }
 </style>

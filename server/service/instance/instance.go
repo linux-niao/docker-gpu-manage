@@ -905,33 +905,38 @@ func (instanceService *InstanceService) GetAvailableNodes(ctx context.Context, s
 			continue
 		}
 
-		// 计算可用显存容量（MemoryCapacity 存储的是单卡容量）
-		availableMemoryCapacity := int64(0)
+		// 计算单卡的可用显存容量（找到所有卡中剩余显存最大的那张卡的剩余显存）
+		availableMemoryCapacityPerCard := int64(0)
 		if node.MemoryCapacity != nil {
 			perCardCapacity := *node.MemoryCapacity
 
 			if node.GpuCount != nil && *node.GpuCount > 0 {
-				// 如果显存是按卡分配的，根据卡的使用情况计算可用显存
+				// 如果显存是按卡分配的，找到单卡的最大可用显存
 				if len(used.CardMemoryUsage) > 0 && perCardCapacity > 0 {
-					// 计算所有卡的剩余显存总和
+					// 计算每张卡的剩余显存，找到最大的
+					maxAvailablePerCard := int64(0)
 					for _, cardUsage := range used.CardMemoryUsage {
 						if cardUsage < perCardCapacity {
-							availableMemoryCapacity += perCardCapacity - cardUsage
+							remaining := perCardCapacity - cardUsage
+							if remaining > maxAvailablePerCard {
+								maxAvailablePerCard = remaining
+							}
 						}
 					}
-					// 如果还有未使用的卡槽，也加上
+					availableMemoryCapacityPerCard = maxAvailablePerCard
+					// 如果还有未使用的卡槽，未使用的卡有完整的单卡容量
 					totalCards := int64(*node.GpuCount)
 					if len(used.CardMemoryUsage) < int(totalCards) {
-						availableMemoryCapacity += perCardCapacity * (totalCards - int64(len(used.CardMemoryUsage)))
+						// 未使用的卡有完整的单卡容量，这肯定比已使用卡的剩余显存大
+						availableMemoryCapacityPerCard = perCardCapacity
 					}
 				} else {
-					// 如果没有按卡分配，使用简单累加方式
-					totalMemoryCapacity := perCardCapacity * *node.GpuCount
-					availableMemoryCapacity = totalMemoryCapacity - used.MemoryCapacityUsed
+					// 如果没有按卡分配，单卡可用显存就是单卡总容量
+					availableMemoryCapacityPerCard = perCardCapacity
 				}
 			} else {
-				// 如果没有GPU，使用简单累加方式
-				availableMemoryCapacity = perCardCapacity - used.MemoryCapacityUsed
+				// 如果没有GPU，单卡可用显存就是单卡总容量
+				availableMemoryCapacityPerCard = perCardCapacity
 			}
 		}
 
@@ -962,8 +967,8 @@ func (instanceService *InstanceService) GetAvailableNodes(ctx context.Context, s
 		if node.Memory != nil {
 			availableNode.Memory = strconv.FormatInt(*node.Memory, 10)
 		}
-		// 返回可用显存容量，而不是总显存容量
-		availableNode.MemoryCapacity = availableMemoryCapacity
+		// 返回单卡的可用显存容量
+		availableNode.MemoryCapacity = availableMemoryCapacityPerCard
 		if node.SystemDisk != nil {
 			availableNode.SystemDisk = strconv.FormatInt(*node.SystemDisk, 10)
 		}
