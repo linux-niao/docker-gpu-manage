@@ -3,6 +3,7 @@ package initialize
 import (
 	"fmt"
 
+	computeNodeSvc "github.com/flipped-aurora/gin-vue-admin/server/service/computenode"
 	"github.com/flipped-aurora/gin-vue-admin/server/service/instance"
 	"github.com/flipped-aurora/gin-vue-admin/server/task"
 
@@ -37,6 +38,8 @@ func Timer() {
 		//}
 	}()
 
-	// 启动容器状态检查定时任务（使用 gcron，每10分钟检查一次）
+	// 启动容器状态检查定时任务（使用 gcron，每30秒检查一次）
 	instance.StartContainerStatusCheckCron()
+	// 启动算力节点 Docker 状态检查定时任务（使用 gcron，每5分钟检查一次）
+	computeNodeSvc.StartDockerStatusCheckCron()
 }
