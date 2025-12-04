@@ -188,6 +188,9 @@
             <el-form-item label="显存容量(GB):" prop="memoryCapacity">
     <el-input-number v-model="formData.memoryCapacity" :min="0" :controls="true" style="width: 20%" placeholder="请输入显存容量" />
 </el-form-item>
+            <el-form-item label="HAMi-core目录:" prop="hamiCore">
+    <el-input v-model="formData.hamiCore" :clearable="true" placeholder="请输入HAMi-core目录路径（例如：/root/HAMi-core/build） 如果想用显存切割，必填。" />
+</el-form-item>
             <el-form-item label="IP地址公网:" prop="publicIp">
     <el-input v-model="formData.publicIp" :clearable="true" placeholder="请输入IP地址公网" @input="handleIpInput('publicIp', $event)" />
 </el-form-item>
@@ -268,6 +271,9 @@
 </el-descriptions-item>
                     <el-descriptions-item label="显存容量">
     {{ detailForm.memoryCapacity }}
+</el-descriptions-item>
+                    <el-descriptions-item label="HAMi-core目录">
+    {{ detailForm.hamiCore }}
 </el-descriptions-item>
                     <el-descriptions-item label="Docker连接地址">
     {{ detailForm.dockerAddress }}
@@ -352,6 +358,7 @@ const formData = ref({
             gpuName: '',
             gpuCount: 0,
             memoryCapacity: 0,
+            hamiCore: '',
             dockerAddress: '',
             useTls: true,
             caCert: '',
@@ -588,6 +595,7 @@ const closeDialog = () => {
         gpuName: '',
         gpuCount: 0,
         memoryCapacity: 0,
+        hamiCore: '',
         dockerAddress: '',
         useTls: true,
         caCert: '',

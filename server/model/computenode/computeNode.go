@@ -30,6 +30,7 @@ type ComputeNode struct {
 	IsOnShelf      *bool   `json:"isOnShelf" form:"isOnShelf" gorm:"default:true;comment:是否上架;column:is_on_shelf;" binding:"required"`         //是否上架
 	Remark         *string `json:"remark" form:"remark" gorm:"comment:备注信息;column:remark;size:1000;"`                                          //备注
 	DockerStatus   *string `json:"dockerStatus" form:"dockerStatus" gorm:"comment:Docker连接状态;column:docker_status;size:50;default:'unknown';"` //Docker连接状态
+	HamiCore       *string `json:"hamiCore" form:"hamiCore" gorm:"comment:HAMi-core目录路径;column:hami_core;size:500;"`                           //HAMi-core目录路径
 }
 
 // TableName 算力节点 ComputeNode自定义表名 compute_node

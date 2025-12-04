@@ -30,6 +30,9 @@
         <el-form-item label="显存容量:" prop="memoryCapacity">
     <el-input-number v-model="formData.memoryCapacity" :min="0" :controls="true" style="width: 100%" placeholder="请输入显存容量" />
 </el-form-item>
+        <el-form-item label="HAMi-core目录:" prop="hamiCore">
+    <el-input v-model="formData.hamiCore" :clearable="true" placeholder="请输入HAMi-core目录路径（例如：/root/hequan/HAMi-core-main/build）" />
+</el-form-item>
         <el-form-item label="IP地址公网:" prop="publicIp">
     <el-input v-model="formData.publicIp" :clearable="true" placeholder="请输入IP地址公网（例如：192.168.1.1）" @input="handleIpInput('publicIp', $event)" />
 </el-form-item>

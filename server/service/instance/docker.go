@@ -167,10 +167,15 @@ func (d *DockerService) CreateContainer(ctx context.Context, node *computenode.C
 
 	// 显存分割配置: 如果支持显存分割，添加相关卷挂载和环境变量
 	if config.SupportMemorySplit && config.MemoryCapacity > 0 && config.PerCardCapacity > 0 {
-		// 挂载 HAMi 库目录: -v /root/hequan/HAMi-core-main/build:/libvgpu/build
+		// 从节点读取 HAMi-core 目录路径，如果未配置则使用默认路径
+		hamiCorePath := "/root/HAMi-core/build"
+		if node.HamiCore != nil && *node.HamiCore != "" {
+			hamiCorePath = *node.HamiCore
+		}
+		// 挂载 HAMi 库目录: -v {hamiCorePath}:/libvgpu/build
 		hostConfig.Mounts = append(hostConfig.Mounts, mount.Mount{
 			Type:   mount.TypeBind,
-			Source: "/root/hequan/HAMi-core-main/build",
+			Source: hamiCorePath,
 			Target: "/libvgpu/build",
 		})
 

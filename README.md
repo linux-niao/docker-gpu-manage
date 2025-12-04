@@ -350,6 +350,18 @@ go run main.go
 6. 点击"初始化"按钮，系统会自动创建数据库和所有表结构
 7. 初始化完成后，会自动创建默认管理员账号（用户名：`admin`，密码：`123456`）
 
+##### 5. 显存切割镜像制作
+
+1.参考下面的项目,在docker server部署，并制作镜像。
+
+```bash
+git clone https://github.com/Project-HAMi/HAMi-core
+```
+2.制作完成后， 把对应的docker server 实际的HAMi-core目录  填到 算力节点的 HAMi-core目录
+
+
+
+
 **方法二：手动初始化**
 
 如果数据库已存在，系统会在启动时自动执行数据库迁移，创建所有必要的表结构。
