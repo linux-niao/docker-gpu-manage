@@ -53,3 +53,16 @@ export const reloadSystem = (data) => {
     data
   })
 }
+
+// @Tags system
+// @Summary 获取跳板机配置
+// @Security ApiKeyAuth
+// @Produce  application/json
+// @Success 200 {string} string "{"success":true,"data":{},"msg":"返回成功"}"
+// @Router /system/getJumpboxConfig [post]
+export const getJumpboxConfig = () => {
+  return service({
+    url: '/system/getJumpboxConfig',
+    method: 'post'
+  })
+}

@@ -688,6 +688,7 @@ import {
   getContainerStats,
   getTerminalWsUrl
 } from '@/api/instance/instance'
+import { getJumpboxConfig } from '@/api/system'
 
 // 全量引入格式化工具 请按需保留
 import { getDictFunc, formatDate, formatBoolean, filterDict ,filterDataSource, returnArrImg, onDownloadFile } from '@/utils/format'
@@ -1470,12 +1471,27 @@ const openTerminalDialog = async (row) => {
 }
 
 // 显示SSH连接信息
-const showSshConnectionInfo = (row) => {
-  const serverIp = '192.168.112.148' 
+const showSshConnectionInfo = async (row) => {
+  // 从配置文件获取跳板机配置
+  let serverIp = '公网IP' // 默认值
+  let sshPort = 2026 // 默认值
+  
+  try {
+    const res = await getJumpboxConfig()
+    if (res.code === 0 && res.data) {
+      if (res.data['server-ip']) {
+        serverIp = res.data['server-ip']
+      }
+      if (res.data.port) {
+        sshPort = res.data.port
+      }
+    }
+  } catch (error) {
+    console.warn('获取跳板机配置失败，使用默认值', error)
+  }
   
   // 获取用户名（从实例的创建用户获取，如果没有则提示用户输入）
   const username = row.userName || 'your_username'
-  const sshPort = 2026
   
   const sshCommand = `ssh ${username}@${serverIp} -p ${sshPort}`
   

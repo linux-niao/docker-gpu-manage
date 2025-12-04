@@ -102,6 +102,7 @@ mcp:
 jumpbox:
     enabled: true
     port: 2026
+    server-ip: "192.168.112.148"
     host-key: ""
     banner: "欢迎使用SSH跳板机服务\r\n"
 minio:

@@ -106,6 +106,7 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "888", V1: "/system/getSystemConfig", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/system/setSystemConfig", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/system/getServerInfo", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/system/getJumpboxConfig", V2: "POST"},
 
 		{Ptype: "p", V0: "888", V1: "/customer/customer", V2: "GET"},
 		{Ptype: "p", V0: "888", V1: "/customer/customer", V2: "PUT"},
@@ -276,6 +277,7 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "8881", V1: "/jwt/jsonInBlacklist", V2: "POST"},
 		{Ptype: "p", V0: "8881", V1: "/system/getSystemConfig", V2: "POST"},
 		{Ptype: "p", V0: "8881", V1: "/system/setSystemConfig", V2: "POST"},
+		{Ptype: "p", V0: "8881", V1: "/system/getJumpboxConfig", V2: "POST"},
 		{Ptype: "p", V0: "8881", V1: "/customer/customer", V2: "POST"},
 		{Ptype: "p", V0: "8881", V1: "/customer/customer", V2: "PUT"},
 		{Ptype: "p", V0: "8881", V1: "/customer/customer", V2: "DELETE"},
@@ -318,6 +320,7 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "9528", V1: "/jwt/jsonInBlacklist", V2: "POST"},
 		{Ptype: "p", V0: "9528", V1: "/system/getSystemConfig", V2: "POST"},
 		{Ptype: "p", V0: "9528", V1: "/system/setSystemConfig", V2: "POST"},
+		{Ptype: "p", V0: "9528", V1: "/system/getJumpboxConfig", V2: "POST"},
 		{Ptype: "p", V0: "9528", V1: "/customer/customer", V2: "PUT"},
 		{Ptype: "p", V0: "9528", V1: "/customer/customer", V2: "GET"},
 		{Ptype: "p", V0: "9528", V1: "/customer/customer", V2: "POST"},

@@ -104,6 +104,7 @@ func (i *initApi) InitializeData(ctx context.Context) (context.Context, error) {
 		{ApiGroup: "系统服务", Method: "POST", Path: "/system/getServerInfo", Description: "获取服务器信息"},
 		{ApiGroup: "系统服务", Method: "POST", Path: "/system/getSystemConfig", Description: "获取配置文件内容"},
 		{ApiGroup: "系统服务", Method: "POST", Path: "/system/setSystemConfig", Description: "设置配置文件内容"},
+		{ApiGroup: "系统服务", Method: "POST", Path: "/system/getJumpboxConfig", Description: "获取跳板机配置"},
 
 		{ApiGroup: "客户", Method: "PUT", Path: "/customer/customer", Description: "更新客户"},
 		{ApiGroup: "客户", Method: "POST", Path: "/customer/customer", Description: "创建客户"},

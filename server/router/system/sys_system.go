@@ -16,7 +16,8 @@ func (s *SysRouter) InitSystemRouter(Router *gin.RouterGroup) {
 		sysRouter.POST("reloadSystem", systemApi.ReloadSystem)       // 重启服务
 	}
 	{
-		sysRouterWithoutRecord.POST("getSystemConfig", systemApi.GetSystemConfig) // 获取配置文件内容
-		sysRouterWithoutRecord.POST("getServerInfo", systemApi.GetServerInfo)     // 获取服务器信息
+		sysRouterWithoutRecord.POST("getSystemConfig", systemApi.GetSystemConfig)   // 获取配置文件内容
+		sysRouterWithoutRecord.POST("getServerInfo", systemApi.GetServerInfo)       // 获取服务器信息
+		sysRouterWithoutRecord.POST("getJumpboxConfig", systemApi.GetJumpboxConfig) // 获取跳板机配置
 	}
 }

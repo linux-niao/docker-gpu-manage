@@ -87,3 +87,15 @@ func (s *SystemApi) GetServerInfo(c *gin.Context) {
 	}
 	response.OkWithDetailed(gin.H{"server": server}, "获取成功", c)
 }
+
+// GetJumpboxConfig
+// @Tags      System
+// @Summary   获取跳板机配置
+// @Security  ApiKeyAuth
+// @Produce   application/json
+// @Success   200  {object}  response.Response{data=object,msg=string}  "获取跳板机配置"
+// @Router    /system/getJumpboxConfig [post]
+func (s *SystemApi) GetJumpboxConfig(c *gin.Context) {
+	jumpboxConfig := global.GVA_CONFIG.Jumpbox
+	response.OkWithDetailed(jumpboxConfig, "获取成功", c)
+}
