@@ -527,27 +527,23 @@
         </div>
       </div>
       
-      <!-- 网络 I/O -->
-      <div class="stats-item" style="margin-top: 16px;">
+      <!-- GPU 显存 -->
+      <div class="stats-item" style="margin-top: 16px;" v-if="shouldShowGpuStats">
         <div class="stats-label">
-          <span>网络 I/O</span>
+          <span>显存使用率</span>
+          <span class="stats-value">{{ (containerStats.gpuMemoryUsageRate ?? 0).toFixed(2) }}%</span>
         </div>
-        <div class="stats-detail">
-          <span>接收: {{ formatBytes(containerStats.networkRx || 0) }}</span>
-          <span style="margin-left: 16px;">发送: {{ formatBytes(containerStats.networkTx || 0) }}</span>
+        <el-progress 
+          :percentage="parseFloat(((containerStats.gpuMemoryUsageRate ?? 0).toFixed(2)))" 
+          :color="getProgressColor(containerStats.gpuMemoryUsageRate)"
+          :stroke-width="12"
+        />
+        <div class="stats-detail" v-if="containerStats.gpuMemorySizeGB">
+          <span>{{ gpuUsedText }}</span>
         </div>
       </div>
-      
-      <!-- 块设备 I/O -->
-      <div class="stats-item" style="margin-top: 12px;">
-        <div class="stats-label">
-          <span>块设备 I/O</span>
-        </div>
-        <div class="stats-detail">
-          <span>读取: {{ formatBytes(containerStats.blockRead || 0) }}</span>
-          <span style="margin-left: 16px;">写入: {{ formatBytes(containerStats.blockWrite || 0) }}</span>
-        </div>
-      </div>
+
+
       
       <!-- 进程数 -->
       <div class="stats-item" style="margin-top: 12px;">
@@ -989,11 +985,9 @@ const containerStats = ref({
   memoryUsage: 0,
   memoryLimit: 0,
   memoryUsagePercent: 0,
-  networkRx: 0,
-  networkTx: 0,
-  blockRead: 0,
-  blockWrite: 0,
-  pids: 0
+  pids: 0,
+  gpuMemorySizeGB: 0,
+  gpuMemoryUsageRate: 0
 })
 const statsLoading = ref(false)
 let statsTimer = null
@@ -1004,10 +998,10 @@ const openDetailShow = () => {
   // 如果容器正在运行，自动获取统计信息并定时刷新
   if (detailForm.value.containerId && detailForm.value.containerStatus === 'running') {
     refreshContainerStats()
-    // 每5秒刷新一次
+    // 每10秒刷新一次
     statsTimer = setInterval(() => {
       refreshContainerStats()
-    }, 5000)
+    }, 10000)
   }
 }
 
@@ -1045,7 +1039,9 @@ const refreshContainerStats = async () => {
         networkTx: res.data.networkTx || 0,
         blockRead: res.data.blockRead || 0,
         blockWrite: res.data.blockWrite || 0,
-        pids: res.data.pids || 0
+        pids: res.data.pids || 0,
+        gpuMemorySizeGB: res.data.gpuMemorySizeGB || 0,
+        gpuMemoryUsageRate: res.data.gpuMemoryUsageRate || 0
       }
     } else {
       // 如果获取失败（可能是实例不存在或已删除），静默处理
@@ -1076,6 +1072,22 @@ const getProgressColor = (percentage) => {
   return '#f56c6c'
 }
 
+// 是否展示GPU显存（当规格有显卡且容器运行中）
+const shouldShowGpuStats = computed(() => {
+  const spec = getSpecInfo(detailForm.value?.specId)
+  const gpuCount = (spec && (spec.gpu_count || spec.gpuCount)) ? (spec.gpu_count || spec.gpuCount) : 0
+  return gpuCount > 0 && detailForm.value?.containerStatus === 'running'
+})
+
+// 显示 GPU 已用显存/总显存
+const gpuUsedText = computed(() => {
+  const total = containerStats.value.gpuMemorySizeGB || 0
+  const rate = containerStats.value.gpuMemoryUsageRate || 0
+  if (!total) return ''
+  const used = (total * rate) / 100
+  return `${used.toFixed(2)}GB / ${total}GB`
+})
+
 // 关闭详情弹窗
 const closeDetailShow = () => {
   // 清除定时器
@@ -1094,7 +1106,9 @@ const closeDetailShow = () => {
     networkTx: 0,
     blockRead: 0,
     blockWrite: 0,
-    pids: 0
+    pids: 0,
+    gpuMemorySizeGB: 0,
+    gpuMemoryUsageRate: 0
   }
 }
 

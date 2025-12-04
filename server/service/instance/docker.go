@@ -8,8 +8,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
@@ -24,6 +28,7 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 )
 
 // DockerService Docker服务
@@ -509,6 +514,39 @@ func parseInt64(s string) int64 {
 	return i
 }
 
+// cpuSetCount 统计 cpuset 字符串中的CPU个数，例如 "0-3,5" -> 5
+func cpuSetCount(set string) int {
+	set = strings.TrimSpace(set)
+	if set == "" {
+		return 0
+	}
+	total := 0
+	parts := strings.Split(set, ",")
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if strings.Contains(p, "-") {
+			// 范围
+			rangeParts := strings.SplitN(p, "-", 2)
+			if len(rangeParts) == 2 {
+				start, err1 := strconv.Atoi(strings.TrimSpace(rangeParts[0]))
+				end, err2 := strconv.Atoi(strings.TrimSpace(rangeParts[1]))
+				if err1 == nil && err2 == nil && end >= start {
+					total += (end - start + 1)
+				}
+			}
+		} else {
+			// 单个
+			if _, err := strconv.Atoi(p); err == nil {
+				total += 1
+			}
+		}
+	}
+	return total
+}
+
 // TestDockerConnection 测试Docker连接
 func (d *DockerService) TestDockerConnection(ctx context.Context, node *computenode.ComputeNode) (bool, string) {
 	if node.DockerAddress == nil || *node.DockerAddress == "" {
@@ -532,89 +570,547 @@ func (d *DockerService) TestDockerConnection(ctx context.Context, node *computen
 
 // ContainerStats 容器统计信息
 type ContainerStats struct {
-	CPUUsagePercent    float64 `json:"cpuUsagePercent"`    // CPU使用率百分比
-	MemoryUsage        int64   `json:"memoryUsage"`        // 内存使用量（字节）
-	MemoryLimit        int64   `json:"memoryLimit"`        // 内存限制（字节）
-	MemoryUsagePercent float64 `json:"memoryUsagePercent"` // 内存使用率百分比
-	NetworkRx          int64   `json:"networkRx"`          // 网络接收字节数
-	NetworkTx          int64   `json:"networkTx"`          // 网络发送字节数
-	BlockRead          int64   `json:"blockRead"`          // 块设备读取字节数
-	BlockWrite         int64   `json:"blockWrite"`         // 块设备写入字节数
-	Pids               uint64  `json:"pids"`               // 进程数
+	// CPUUsagePercent: 归一化到0-100%（相对于可用CPU核数），更贴近直觉
+	CPUUsagePercent float64 `json:"cpuUsagePercent"` // CPU使用率百分比(0-100)
+	// CPUUsagePercentRaw: 原始百分比，可超过100%，= 使用核数合计 * 100
+	CPUUsagePercentRaw float64 `json:"cpuUsagePercentRaw,omitempty"` // 原始CPU百分比(可能>100%)
+	MemoryUsage        int64   `json:"memoryUsage"`                  // 内存使用量（字节）
+	MemoryLimit        int64   `json:"memoryLimit"`                  // 内存限制（字节）
+	MemoryUsagePercent float64 `json:"memoryUsagePercent"`           // 内存使用率百分比
+	Pids               uint64  `json:"pids"`                         // 进程数
+	GPUMemorySizeGB    float64 `json:"gpuMemorySizeGB"`              // GPU显存大小(GB) - 当产品规格中显卡数量>0时返回
+	GPUMemoryUsageRate float64 `json:"gpuMemoryUsageRate"`           // GPU显存使用率(%) - 当产品规格中显卡数量>0时返回
+}
+
+// 显存采集缓存（15秒刷新）
+var (
+	statsCache sync.Map // key: cacheKey(node, containerID) -> cachedStats
+	cacheTTL   = 20 * time.Second
+)
+
+type cachedStats struct {
+	at    time.Time
+	stats *ContainerStats
+}
+
+func cacheKey(node *computenode.ComputeNode, containerID string) string {
+	addr := ""
+	if node != nil && node.DockerAddress != nil {
+		addr = *node.DockerAddress
+	}
+	return addr + "|" + containerID
+}
+
+// getGPUMemoryInfo 获取GPU显存信息
+// 返回值: (显存大小GB, 显存使用率%)
+func (d *DockerService) getGPUMemoryInfo(ctx context.Context, cli *client.Client, containerID string) (float64, float64) {
+	start := time.Now()
+
+	// 优先尝试无单位输出
+	gpuSizeGB, gpuRate, ok := d.tryParseNvidiaSmi(ctx, cli, containerID, []string{
+		"nvidia-smi", "--query-gpu=memory.total,memory.used", "--format=csv,noheader,nounits",
+	})
+	if ok {
+		return gpuSizeGB, gpuRate
+	}
+	// 次选：允许带单位输出
+	gpuSizeGB, gpuRate, ok = d.tryParseNvidiaSmi(ctx, cli, containerID, []string{
+		"nvidia-smi", "--query-gpu=memory.total,memory.used", "--format=csv,noheader",
+	})
+	if ok {
+		return gpuSizeGB, gpuRate
+	}
+	// 再次尝试绝对路径
+	gpuSizeGB, gpuRate, ok = d.tryParseNvidiaSmi(ctx, cli, containerID, []string{
+		"/usr/bin/nvidia-smi", "--query-gpu=memory.total,memory.used", "--format=csv,noheader,nounits",
+	})
+	if ok {
+		return gpuSizeGB, gpuRate
+	}
+	// 容器内不可用时，尝试宿主机 nvidia-smi 配合 NVIDIA_VISIBLE_DEVICES
+	gpuSizeGB, gpuRate, ok = d.tryHostNvidiaSmiWithVisibleDevices(ctx, cli, containerID)
+	if ok {
+		return gpuSizeGB, gpuRate
+	}
+
+	// Fallback：如果容器设置了 CUDA_DEVICE_MEMORY_LIMIT 环境变量，至少返回总显存大小
+	inspect, err := cli.ContainerInspect(ctx, containerID)
+	if err == nil {
+		limitGB := int64(0)
+		for _, e := range inspect.Config.Env {
+			if strings.HasPrefix(e, "CUDA_DEVICE_MEMORY_LIMIT=") {
+				val := strings.TrimPrefix(e, "CUDA_DEVICE_MEMORY_LIMIT=")
+				val = strings.TrimSpace(strings.TrimSuffix(val, "g"))
+				if v, err := strconv.ParseInt(val, 10, 64); err == nil && v > 0 {
+					limitGB = v
+					break
+				}
+			}
+		}
+		if limitGB > 0 {
+			return float64(limitGB), 0.0
+		}
+	}
+
+	global.GVA_LOG.Warn("无法获取GPU显存信息（容器可能未安装nvidia-smi或未分配GPU）",
+		zap.String("containerID", containerID), zap.Duration("cost", time.Since(start)))
+	return 0.0, 0.0
+}
+
+// tryParseNvidiaSmi 在容器内执行 nvidia-smi 并解析（兼容多GPU、多行与带单位）
+func (d *DockerService) tryParseNvidiaSmi(ctx context.Context, cli *client.Client, containerID string, cmd []string) (float64, float64, bool) {
+	execConfig := container.ExecOptions{Cmd: cmd, AttachStdout: true, AttachStderr: true}
+	execResp, err := cli.ContainerExecCreate(ctx, containerID, execConfig)
+	if err != nil {
+		return 0, 0, false
+	}
+	a, err := cli.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
+	if err != nil {
+		return 0, 0, false
+	}
+	defer a.Close()
+	var outBuf, errBuf bytes.Buffer
+	if _, err := stdcopy.StdCopy(&outBuf, &errBuf, a.Reader); err != nil {
+		return 0, 0, false
+	}
+	out := strings.TrimSpace(outBuf.String())
+	if out == "" {
+		return 0, 0, false
+	}
+	lines := strings.Split(out, "\n")
+	var totalMB, usedMB float64
+	var parsed bool
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// 兼容：
+		// 1) nounits: "48000, 12000"
+		// 2) 带单位: "48000 MiB, 12000 MiB"
+		parts := strings.Split(line, ",")
+		if len(parts) < 2 {
+			continue
+		}
+		left := strings.TrimSpace(parts[0])
+		right := strings.TrimSpace(parts[1])
+		lm := parseMBAllowUnits(left)
+		rm := parseMBAllowUnits(right)
+		if lm > 0 {
+			totalMB += lm
+			usedMB += rm
+			parsed = true
+		}
+	}
+	if !parsed || totalMB <= 0 {
+		return 0, 0, false
+	}
+	gpuSizeGB := totalMB / 1024.0
+	usage := 0.0
+	if totalMB > 0 {
+		usage = (usedMB / totalMB) * 100.0
+	}
+	return gpuSizeGB, usage, true
+}
+
+// parseMBAllowUnits 解析形如 "48000", "48000 MB", "48000 MiB" → 返回MB数
+func parseMBAllowUnits(s string) float64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	// 去除常见单位
+	ls := strings.ToLower(s)
+	ls = strings.ReplaceAll(ls, "mib", "mb")
+	ls = strings.ReplaceAll(ls, " mib", " mb")
+	ls = strings.TrimSpace(ls)
+	// 提取前缀数字
+	var numPart string
+	for i, r := range ls {
+		if !(r == '+' || r == '-' || r == '.' || (r >= '0' && r <= '9')) {
+			numPart = strings.TrimSpace(ls[:i])
+			break
+		}
+	}
+	if numPart == "" {
+		numPart = ls
+	}
+	v, err := strconv.ParseFloat(numPart, 64)
+	if err != nil {
+		return 0
+	}
+	// 基本按MB处理
+	return v
+}
+
+// tryHostNvidiaSmiWithVisibleDevices 尝试在宿主机执行 nvidia-smi 作为兜底方案（仅当服务与Docker宿主同机时可用）
+func (d *DockerService) tryHostNvidiaSmiWithVisibleDevices(ctx context.Context, cli *client.Client, containerID string) (float64, float64, bool) {
+	inspect, err := cli.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return 0, 0, false
+	}
+	visible := ""
+	for _, e := range inspect.Config.Env {
+		if strings.HasPrefix(e, "NVIDIA_VISIBLE_DEVICES=") {
+			visible = strings.TrimSpace(strings.TrimPrefix(e, "NVIDIA_VISIBLE_DEVICES="))
+			break
+		}
+	}
+	if visible == "" || visible == "none" || visible == "void" {
+		return 0, 0, false
+	}
+	// 宿主机 nvidia-smi
+	bin, err := exec.LookPath("nvidia-smi")
+	if err != nil {
+		return 0, 0, false
+	}
+	args := []string{"--query-gpu=memory.total,memory.used", "--format=csv,noheader,nounits"}
+	// 如果不是all，则限定设备
+	if strings.ToLower(visible) != "all" {
+		// 直接传入 -i 可接受 index 或 UUID
+		args = append([]string{"-i", visible}, args...)
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		// 若限定失败，回退到不限定
+		cmd2 := exec.CommandContext(ctx, bin, "--query-gpu=memory.total,memory.used", "--format=csv,noheader,nounits")
+		var o2, e2 bytes.Buffer
+		cmd2.Stdout = &o2
+		cmd2.Stderr = &e2
+		if err2 := cmd2.Run(); err2 != nil {
+			return 0, 0, false
+		}
+		outBuf = o2
+	}
+	out := strings.TrimSpace(outBuf.String())
+	if out == "" {
+		return 0, 0, false
+	}
+	lines := strings.Split(out, "\n")
+	var totalMB, usedMB float64
+	var parsed bool
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, ",")
+		if len(parts) < 2 {
+			continue
+		}
+		lm, _ := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+		rm, _ := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+		if lm > 0 {
+			totalMB += lm
+			usedMB += rm
+			parsed = true
+		}
+	}
+	if !parsed || totalMB <= 0 {
+		return 0, 0, false
+	}
+	sizeGB := totalMB / 1024.0
+	rate := (usedMB / totalMB) * 100.0
+	return sizeGB, rate, true
+}
+
+// getContainerStatsViaCLI 通过 docker stats --no-stream --format 获取统计信息
+func (d *DockerService) getContainerStatsViaCLI(ctx context.Context, node *computenode.ComputeNode, containerID string) (*ContainerStats, error) {
+	// 确保 docker 可用
+	path, err := exec.LookPath("docker")
+	if err != nil {
+		return nil, fmt.Errorf("找不到docker命令: %v", err)
+	}
+
+	// 准备环境变量
+	env := os.Environ()
+	// 设置 DOCKER_HOST（例如 tcp://1.2.3.4:2376 或 unix:///var/run/docker.sock）
+	if node.DockerAddress != nil && *node.DockerAddress != "" {
+		env = append(env, fmt.Sprintf("DOCKER_HOST=%s", *node.DockerAddress))
+	}
+	// TLS 处理
+	var tmpDir string
+	cleanup := func() {}
+	if node.UseTls != nil && *node.UseTls {
+		// 创建临时目录并写入证书
+		dir, err := os.MkdirTemp("", "docker-cert-*")
+		if err != nil {
+			return nil, fmt.Errorf("创建临时证书目录失败: %v", err)
+		}
+		tmpDir = dir
+		cleanup = func() {
+			os.RemoveAll(tmpDir)
+		}
+		// 写入证书
+		if node.CaCert == nil || node.ClientCert == nil || node.ClientKey == nil {
+			cleanup()
+			return nil, fmt.Errorf("TLS证书配置不完整")
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "ca.pem"), []byte(*node.CaCert), 0600); err != nil {
+			cleanup()
+			return nil, fmt.Errorf("写入ca.pem失败: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "cert.pem"), []byte(*node.ClientCert), 0600); err != nil {
+			cleanup()
+			return nil, fmt.Errorf("写入cert.pem失败: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "key.pem"), []byte(*node.ClientKey), 0600); err != nil {
+			cleanup()
+			return nil, fmt.Errorf("写入key.pem失败: %v", err)
+		}
+		env = append(env, "DOCKER_TLS_VERIFY=1")
+		env = append(env, fmt.Sprintf("DOCKER_CERT_PATH=%s", tmpDir))
+	}
+	defer cleanup()
+
+	// 使用 --format 输出JSON，便于解析
+	// 注意：docker stats --no-stream --format '{{json .}}' <container>
+	cmd := exec.CommandContext(ctx, path, "stats", "--no-stream", "--format", "{{json .}}", containerID)
+	cmd.Env = env
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("执行docker stats失败: %v, stderr=%s", err, stderr.String())
+	}
+	line := strings.TrimSpace(stdout.String())
+	if line == "" {
+		return nil, fmt.Errorf("docker stats 输出为空")
+	}
+
+	// 解析JSON行
+	type statsLine struct {
+		Container string `json:"Container"`
+		Name      string `json:"Name"`
+		CPUPerc   string `json:"CPUPerc"`
+		MemUsage  string `json:"MemUsage"`
+		MemPerc   string `json:"MemPerc"`
+		NetIO     string `json:"NetIO"`
+		BlockIO   string `json:"BlockIO"`
+		PIDs      string `json:"PIDs"`
+	}
+	var sl statsLine
+	if err := json.Unmarshal([]byte(line), &sl); err != nil {
+		return nil, fmt.Errorf("解析docker stats JSON失败: %v", err)
+	}
+
+	// 转换字段
+	cpu := parsePercent(sl.CPUPerc)
+	memUsedBytes, memLimitBytes := parseUsedTotal(sl.MemUsage)
+	memPerc := parsePercent(sl.MemPerc)
+	// 不再采集网络和块设备I/O
+	pids := parseInt64(sl.PIDs)
+
+	return &ContainerStats{
+		CPUUsagePercent:    cpu, // docker CLI 已经是归一化到单核100%*numCPU的总百分比，适合直接显示
+		CPUUsagePercentRaw: cpu, // 这里保持一致（CLI输出即为原始）
+		MemoryUsage:        memUsedBytes,
+		MemoryLimit:        memLimitBytes,
+		MemoryUsagePercent: memPerc,
+		Pids:               uint64(pids),
+	}, nil
+}
+
+// parsePercent 将 "12.34%" 转为 12.34
+func parsePercent(s string) float64 {
+	s = strings.TrimSpace(strings.TrimSuffix(s, "%"))
+	v, _ := strconv.ParseFloat(s, 64)
+	return v
+}
+
+// parseUsedTotal 解析 "X / Y"，两端的带单位字符串转为字节数，若只有一个值，返回该值与0
+func parseUsedTotal(s string) (int64, int64) {
+	parts := strings.Split(s, "/")
+	if len(parts) == 0 {
+		return 0, 0
+	}
+	first := parseBytes(strings.TrimSpace(parts[0]))
+	if len(parts) < 2 {
+		return first, 0
+	}
+	second := parseBytes(strings.TrimSpace(parts[1]))
+	return first, second
+}
+
+// parseBytes 将带单位字符串转为字节数，支持 B, KB/kB, MB/MiB, GB/GiB, TB/TiB
+func parseBytes(s string) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	// 拆出数值与单位
+	// 例如 "824KiB", "1.23GB", "12.5 MB"
+	var numPart, unitPart string
+	for i, r := range s {
+		if !(r == '+' || r == '-' || r == '.' || (r >= '0' && r <= '9')) {
+			numPart = strings.TrimSpace(s[:i])
+			unitPart = strings.TrimSpace(s[i:])
+			break
+		}
+	}
+	if numPart == "" {
+		numPart = s
+		unitPart = "B"
+	}
+	val, _ := strconv.ParseFloat(numPart, 64)
+	unit := strings.ToUpper(unitPart)
+	// 兼容空格和iB
+	unit = strings.ReplaceAll(unit, "IB", "B")
+	unit = strings.ReplaceAll(unit, "I", "")
+	unit = strings.TrimSpace(unit)
+	switch unit {
+	case "B", "":
+		return int64(val)
+	case "KB", "KIB", "K":
+		return int64(val * 1024)
+	case "MB", "MIB", "M":
+		return int64(val * 1024 * 1024)
+	case "GB", "GIB", "G":
+		return int64(val * 1024 * 1024 * 1024)
+	case "TB", "TIB", "T":
+		return int64(val * 1024 * 1024 * 1024 * 1024)
+	default:
+		// 也可能是 "kB" 小写k
+		lu := strings.ToLower(unitPart)
+		if strings.HasPrefix(lu, "kb") || lu == "k" {
+			return int64(val * 1000)
+		}
+		if strings.HasPrefix(lu, "mb") || lu == "m" {
+			return int64(val * 1000 * 1000)
+		}
+		if strings.HasPrefix(lu, "gb") || lu == "g" {
+			return int64(val * 1000 * 1000 * 1000)
+		}
+		if strings.HasPrefix(lu, "tb") || lu == "t" {
+			return int64(val * 1000 * 1000 * 1000 * 1000)
+		}
+	}
+	return int64(val)
 }
 
 // GetContainerStats 获取容器统计信息
 func (d *DockerService) GetContainerStats(ctx context.Context, node *computenode.ComputeNode, containerID string) (*ContainerStats, error) {
+	// 先检查缓存，15秒内直接返回，减少开销&实现自动刷新
+	ck := cacheKey(node, containerID)
+	if v, ok := statsCache.Load(ck); ok {
+		cs := v.(cachedStats)
+		if time.Since(cs.at) < cacheTTL {
+			return cs.stats, nil
+		}
+	}
+
+	// 优先走 docker stats --no-stream（与Docker CLI一致）
+	if stats, err := d.getContainerStatsViaCLI(ctx, node, containerID); err == nil && stats != nil {
+		// 追加GPU信息（通过SDK exec nvidia-smi）
+		if node != nil {
+			if cliTmp, err := d.CreateDockerClient(node); err == nil {
+				defer cliTmp.Close()
+				gm, gr := d.getGPUMemoryInfo(ctx, cliTmp, containerID)
+				stats.GPUMemorySizeGB = gm
+				stats.GPUMemoryUsageRate = gr
+			}
+		}
+		statsCache.Store(ck, cachedStats{at: time.Now(), stats: stats})
+		return stats, nil
+	}
+
 	cli, err := d.CreateDockerClient(node)
 	if err != nil {
 		return nil, fmt.Errorf("创建Docker客户端失败: %v", err)
 	}
 	defer cli.Close()
 
-	// 获取容器统计信息
-	stats, err := cli.ContainerStats(ctx, containerID, false)
+	statsCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	stream, err := cli.ContainerStats(statsCtx, containerID, true)
 	if err != nil {
 		return nil, fmt.Errorf("获取容器统计信息失败: %v", err)
 	}
-	defer stats.Body.Close()
+	defer stream.Body.Close()
 
-	// 解析统计信息
-	var v types.StatsJSON
-	if err := json.NewDecoder(stats.Body).Decode(&v); err != nil {
-		return nil, fmt.Errorf("解析统计信息失败: %v", err)
+	dec := json.NewDecoder(stream.Body)
+	var prev, curr types.StatsJSON
+	if err := dec.Decode(&prev); err != nil {
+		return nil, fmt.Errorf("解析统计信息失败(首样本): %v", err)
+	}
+	var hasSecond bool
+	if err := dec.Decode(&curr); err == nil {
+		hasSecond = true
+	} else {
+		curr = prev
 	}
 
-	// 计算CPU使用率
-	var cpuPercent float64
-	if v.CPUStats.CPUUsage.TotalUsage > 0 && v.PreCPUStats.CPUUsage.TotalUsage > 0 {
-		cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
-		systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
+	// CPU 计算（见上方算法）
+	var rawCPUPercent float64
+	var normCPUPercent float64
+	numCPUs := curr.CPUStats.OnlineCPUs
+	if numCPUs == 0 {
+		numCPUs = uint32(len(curr.CPUStats.CPUUsage.PercpuUsage))
+	}
+	if hasSecond {
+		cpuDelta := float64(curr.CPUStats.CPUUsage.TotalUsage - prev.CPUStats.CPUUsage.TotalUsage)
+		var elapsedNs float64
+		if !curr.Read.IsZero() && !prev.Read.IsZero() {
+			elapsedNs = float64(curr.Read.Sub(prev.Read).Nanoseconds())
+		}
+		if elapsedNs > 0 && cpuDelta >= 0 {
+			rawCPUPercent = (cpuDelta / elapsedNs) * 100.0
+		} else {
+			systemDelta := float64(curr.CPUStats.SystemUsage - prev.CPUStats.SystemUsage)
+			if cpuDelta > 0 && systemDelta > 0 {
+				if numCPUs == 0 {
+					numCPUs = uint32(len(curr.CPUStats.CPUUsage.PercpuUsage))
+				}
+				rawCPUPercent = (cpuDelta / systemDelta) * float64(numCPUs) * 100.0
+			}
+		}
+	} else if curr.CPUStats.CPUUsage.TotalUsage > 0 && curr.PreCPUStats.CPUUsage.TotalUsage > 0 {
+		cpuDelta := float64(curr.CPUStats.CPUUsage.TotalUsage - curr.PreCPUStats.CPUUsage.TotalUsage)
+		systemDelta := float64(curr.CPUStats.SystemUsage - curr.PreCPUStats.SystemUsage)
 		if systemDelta > 0 {
-			cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
+			if numCPUs == 0 {
+				numCPUs = uint32(len(curr.CPUStats.CPUUsage.PercpuUsage))
+			}
+			rawCPUPercent = (cpuDelta / systemDelta) * float64(numCPUs) * 100.0
 		}
 	}
+	if numCPUs > 0 {
+		normCPUPercent = rawCPUPercent / float64(numCPUs)
+	}
+	if normCPUPercent < 0 {
+		normCPUPercent = 0
+	}
+	if normCPUPercent > 100 {
+		normCPUPercent = 100
+	}
 
-	// 计算内存使用率
+	// 内存
 	var memoryPercent float64
-	memoryUsage := v.MemoryStats.Usage
-	memoryLimit := v.MemoryStats.Limit
+	memoryUsage := curr.MemoryStats.Usage
+	memoryLimit := curr.MemoryStats.Limit
 	if memoryLimit > 0 {
 		memoryPercent = float64(memoryUsage) / float64(memoryLimit) * 100.0
 	}
 
-	// 获取网络统计
-	var networkRx, networkTx int64
-	if len(v.Networks) > 0 {
-		for _, network := range v.Networks {
-			networkRx += int64(network.RxBytes)
-			networkTx += int64(network.TxBytes)
-		}
-	}
+	// 不再采集网络与块设备I/O
+	pids := curr.PidsStats.Current
 
-	// 获取块设备统计
-	var blockRead, blockWrite int64
-	if len(v.BlkioStats.IoServiceBytesRecursive) > 0 {
-		for _, entry := range v.BlkioStats.IoServiceBytesRecursive {
-			if entry.Op == "Read" {
-				blockRead += int64(entry.Value)
-			} else if entry.Op == "Write" {
-				blockWrite += int64(entry.Value)
-			}
-		}
-	}
+	gm, gr := d.getGPUMemoryInfo(ctx, cli, containerID)
 
-	// 获取进程数
-	pids := v.PidsStats.Current
-
-	return &ContainerStats{
-		CPUUsagePercent:    cpuPercent,
+	res := &ContainerStats{
+		CPUUsagePercent:    normCPUPercent,
+		CPUUsagePercentRaw: rawCPUPercent,
 		MemoryUsage:        int64(memoryUsage),
 		MemoryLimit:        int64(memoryLimit),
 		MemoryUsagePercent: memoryPercent,
-		NetworkRx:          networkRx,
-		NetworkTx:          networkTx,
-		BlockRead:          blockRead,
-		BlockWrite:         blockWrite,
 		Pids:               pids,
-	}, nil
+		GPUMemorySizeGB:    gm,
+		GPUMemoryUsageRate: gr,
+	}
+	statsCache.Store(ck, cachedStats{at: time.Now(), stats: res})
+	return res, nil
 }

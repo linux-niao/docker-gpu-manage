@@ -101,7 +101,7 @@
 | 显卡名称 | string | | GPU 型号 |
 | 显卡数量 | int | | GPU 数量 |
 | 显存容量 | int | | 单卡显存容量(GB) |
-| HAMi-core目录 | string |  | 节点HAMi-core build目录路径，用于显存切分挂载，示例：/root/HAMi-core-main/build |
+| HAMi-core目录 | string |  | 节点HAMi-core build目录路径，用于显存切分挂载，示例：/root/HAMi-core/build |
 | Docker连接地址 | string | | Docker API 地址 |
 | 使用TLS | bool | | 默认启用 |
 | CA证书 | text | | TLS CA 证书 |
